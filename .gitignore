@@ -1,0 +1,21 @@
+# Python virtual environment
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Generated screenshots
+screenshots/current/*
+screenshots/debug/*
+
+# Keep empty directories
+!screenshots/current/.gitkeep
+!screenshots/debug/.gitkeep
+
+# VS Code
+.vscode/
+
+# Environment variables
+.env
