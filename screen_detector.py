@@ -13,10 +13,11 @@ class ScreenDetectionError(Exception):
 
 
 class ScreenState(str, Enum):
-    """Known game screens supported in Milestone 4A."""
+    """Known game screens supported in the current milestone."""
 
     HOME = "HOME"
     ATTACK_MENU = "ATTACK_MENU"
+    ARMY_CONFIRMATION = "ARMY_CONFIRMATION"
     ENEMY_BASE = "ENEMY_BASE"
     UNKNOWN = "UNKNOWN"
 
@@ -38,6 +39,8 @@ class ScreenTemplate:
     state: ScreenState
     template_path: Path
     template_name: str
+    action_template_path: Path | None = None
+    action_template_name: str | None = None
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,10 @@ class ScreenDetectionResult:
     bounding_box: BoundingBox | None
     center: tuple[int, int] | None
     screenshot_size: tuple[int, int]
+    action_template_name: str | None = None
+    action_confidence: float | None = None
+    action_bounding_box: BoundingBox | None = None
+    action_center: tuple[int, int] | None = None
     debug_image_path: Path | None = None
     best_candidate_confidence: float | None = None
 
@@ -64,6 +71,13 @@ REGISTERED_TEMPLATES: tuple[ScreenTemplate, ...] = (
         state=ScreenState.ATTACK_MENU,
         template_path=Path("templates/attack_menu/find_match_button.png"),
         template_name="find_match_button.png",
+    ),
+    ScreenTemplate(
+        state=ScreenState.ARMY_CONFIRMATION,
+        template_path=Path("templates/army_confirmation/army_panel_anchor.png"),
+        template_name="army_panel_anchor.png",
+        action_template_path=Path("templates/army_confirmation/confirm_attack_button.png"),
+        action_template_name="confirm_attack_button.png",
     ),
     ScreenTemplate(
         state=ScreenState.ENEMY_BASE,
@@ -123,6 +137,10 @@ def detect_screen(
         bounding_box=best_valid_match.bounding_box,
         center=best_valid_match.center,
         screenshot_size=screenshot_size,
+        action_template_name=best_valid_match.action_template_name,
+        action_confidence=best_valid_match.action_confidence,
+        action_bounding_box=best_valid_match.action_bounding_box,
+        action_center=best_valid_match.action_center,
         debug_image_path=debug_path,
         best_candidate_confidence=best_candidate.confidence,
     )
@@ -146,6 +164,21 @@ def _match_template(
     bounding_box = BoundingBox(x=x, y=y, width=template_width, height=template_height)
     center = (x + template_width // 2, y + template_height // 2)
 
+    action_bounding_box: BoundingBox | None = None
+    action_center: tuple[int, int] | None = None
+    action_confidence: float | None = None
+
+    if screen_template.action_template_path and screen_template.action_template_name:
+        action_template = _load_image(
+            screen_template.action_template_path,
+            f"template {screen_template.action_template_name}",
+        )
+        action_confidence, action_bounding_box, action_center = _match_action_template(
+            screenshot,
+            action_template,
+            screen_template,
+        )
+
     return ScreenDetectionResult(
         state=screen_template.state,
         confidence=float(max_confidence),
@@ -153,7 +186,31 @@ def _match_template(
         bounding_box=bounding_box,
         center=center,
         screenshot_size=(screenshot_width, screenshot_height),
+        action_template_name=screen_template.action_template_name,
+        action_confidence=action_confidence,
+        action_bounding_box=action_bounding_box,
+        action_center=action_center,
     )
+
+
+def _match_action_template(
+    screenshot: cv2.typing.MatLike,
+    template: cv2.typing.MatLike,
+    screen_template: ScreenTemplate,
+) -> tuple[float, BoundingBox, tuple[int, int]]:
+    screenshot_height, screenshot_width = screenshot.shape[:2]
+    template_height, template_width = template.shape[:2]
+
+    if template_width > screenshot_width or template_height > screenshot_height:
+        raise ScreenDetectionError(f"Template is larger than the screenshot: {screen_template.action_template_name}")
+
+    match_result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+    _, max_confidence, _, max_location = cv2.minMaxLoc(match_result)
+
+    x, y = max_location
+    bounding_box = BoundingBox(x=x, y=y, width=template_width, height=template_height)
+    center = (x + template_width // 2, y + template_height // 2)
+    return float(max_confidence), bounding_box, center
 
 
 def _load_image(path: Path, label: str) -> cv2.typing.MatLike:
@@ -179,22 +236,28 @@ def _save_match_debug_image(
     output_path = debug_directory / f"{detection.state.value.lower()}_detection.png"
 
     annotated = screenshot.copy()
-    box = detection.bounding_box
-    top_left = (box.x, box.y)
-    bottom_right = (box.x + box.width, box.y + box.height)
+    matched_box = detection.bounding_box
+    top_left = (matched_box.x, matched_box.y)
+    bottom_right = (matched_box.x + matched_box.width, matched_box.y + matched_box.height)
     cv2.rectangle(annotated, top_left, bottom_right, (0, 255, 0), 2)
 
     label = f"{detection.state.value} {detection.confidence:.2f}"
     cv2.putText(
         annotated,
         label,
-        (box.x, max(25, box.y - 10)),
+        (matched_box.x, max(25, matched_box.y - 10)),
         cv2.FONT_HERSHEY_SIMPLEX,
         0.8,
         (0, 255, 0),
         2,
         cv2.LINE_AA,
     )
+
+    if detection.action_bounding_box is not None:
+        action_box = detection.action_bounding_box
+        action_top_left = (action_box.x, action_box.y)
+        action_bottom_right = (action_box.x + action_box.width, action_box.y + action_box.height)
+        cv2.rectangle(annotated, action_top_left, action_bottom_right, (255, 255, 0), 2)
 
     if not cv2.imwrite(str(output_path), annotated):
         raise ScreenDetectionError(f"Debug image could not be saved: {output_path}")
@@ -206,7 +269,5 @@ def _save_unknown_screenshot(screenshot_path: Path, debug_directory: Path) -> Pa
     debug_directory.mkdir(parents=True, exist_ok=True)
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = debug_directory / f"unknown_{timestamp}.png"
-
-    screenshot_bytes = screenshot_path.read_bytes()
-    output_path.write_bytes(screenshot_bytes)
+    output_path.write_bytes(screenshot_path.read_bytes())
     return output_path

@@ -2,22 +2,17 @@ from __future__ import annotations
 
 import argparse
 import logging
-import shutil
 import sys
-import time
-from datetime import datetime
 from pathlib import Path
 
 from adb_controller import ADBController, ADBError
-from screen_detector import ScreenDetectionError, ScreenState, detect_screen
+from resource_reader import ResourceReadResult, ResourceReader, ResourceReaderError
+from screen_detector import ScreenDetectionError, ScreenDetectionResult, ScreenState, detect_screen
 
 
 DEFAULT_PACKAGE_NAME = "com.supercell.clashofclans"
 CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
 DEBUG_DIRECTORY = Path("screenshots/debug")
-DRY_RUN = True
-TRANSITION_DELAY_SECONDS = 2.0
-MAX_HOME_TO_ATTACK_MENU_RETRIES = 2
 
 
 def configure_logging(debug: bool) -> None:
@@ -26,7 +21,7 @@ def configure_logging(debug: bool) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Milestone 3B runner for CoC Vision Automation Lab.")
+    parser = argparse.ArgumentParser(description="ENEMY_BASE resource reader.")
     parser.add_argument("--adb-path", help="Optional explicit path to the adb executable.")
     parser.add_argument("--device-id", help="Optional explicit device id.")
     parser.add_argument(
@@ -40,111 +35,75 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.85,
         help="Confidence threshold for screen template matching. Default: 0.85",
     )
-    parser.add_argument(
-        "--delay-seconds",
-        type=float,
-        default=TRANSITION_DELAY_SECONDS,
-        help=f"Delay after tapping before verification. Default: {TRANSITION_DELAY_SECONDS}",
-    )
-    parser.add_argument(
-        "--dry-run",
-        dest="dry_run",
-        action="store_true",
-        default=DRY_RUN,
-        help="Enable dry-run mode. This is the default behavior.",
-    )
-    parser.add_argument(
-        "--no-dry-run",
-        dest="dry_run",
-        action="store_false",
-        help="Disable dry-run mode and allow one controlled HOME -> ATTACK_MENU transition.",
-    )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser
 
 
-def _log_dry_run_action(detection_result) -> None:
-    logging.info("Dry-run mode is enabled")
-    if detection_result.state is ScreenState.HOME and detection_result.center is not None:
-        logging.info(
-            "Dry-run: would tap the HOME Attack button at (%s, %s)",
-            detection_result.center[0],
-            detection_result.center[1],
-        )
-    else:
-        logging.info("Dry-run: no tap will be sent for state %s", detection_result.state.value)
+def _log_detection_result(detection_result: ScreenDetectionResult) -> None:
+    if detection_result.state is ScreenState.UNKNOWN:
+        logging.warning("Detected screen: UNKNOWN")
+        logging.info("Best candidate confidence: %.2f", detection_result.best_candidate_confidence or 0.0)
+        if detection_result.debug_image_path:
+            logging.info("Unknown screenshot saved to %s", detection_result.debug_image_path.as_posix())
+        return
 
+    logging.info("Detected screen: %s", detection_result.state.value)
+    logging.info("Matched template: %s", detection_result.matched_template_name)
+    logging.info("Confidence: %.2f", detection_result.confidence)
+    if detection_result.center is not None:
+        logging.info("Matched center: (%s, %s)", detection_result.center[0], detection_result.center[1])
+    if detection_result.debug_image_path:
+        logging.info("Debug image saved to %s", detection_result.debug_image_path.as_posix())
 
-def _transition_home_to_attack_menu(
-    *,
+def _detect_current_screen(
     controller: ADBController,
-    initial_detection,
+    *,
     threshold: float,
-    delay_seconds: float,
-) -> bool:
-    detection_result = initial_detection
+) -> ScreenDetectionResult:
+    screenshot_path = controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
+    logging.info("Screenshot captured")
+    logging.info("Screenshot saved to %s", screenshot_path.as_posix())
+    return detect_screen(
+        screenshot_path,
+        threshold=threshold,
+        debug_directory=DEBUG_DIRECTORY,
+    )
 
-    for attempt_index in range(MAX_HOME_TO_ATTACK_MENU_RETRIES + 1):
-        _validate_tap_target(detection_result)
-        center_x, center_y = detection_result.center
-        logging.info("Sending tap to detected HOME Attack button at (%s, %s)", center_x, center_y)
-        controller.tap(center_x, center_y)
 
-        time.sleep(delay_seconds)
-
-        screenshot_path = controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
-        logging.info("Verification screenshot captured")
-        detection_result = detect_screen(
-            screenshot_path,
-            threshold=threshold,
-            debug_directory=DEBUG_DIRECTORY,
+def _log_resource_result(resource_result: ResourceReadResult) -> None:
+    if resource_result.gold.value is not None:
+        logging.info("Gold parsed value: %s", resource_result.gold.value)
+    else:
+        logging.error(
+            "Gold reading failed. Icon confidence: %.2f, raw OCR text: %r",
+            resource_result.gold.icon_confidence,
+            resource_result.gold.raw_ocr_text,
         )
 
-        if detection_result.state is ScreenState.ATTACK_MENU:
-            logging.info("Transition successful: HOME -> ATTACK_MENU")
-            return True
-
-        logging.warning("Transition verification failed. Detected state: %s", detection_result.state.value)
-
-        if attempt_index >= MAX_HOME_TO_ATTACK_MENU_RETRIES:
-            failure_path = _save_transition_failure_screenshot(screenshot_path)
-            logging.error("Transition failed after %s retries", MAX_HOME_TO_ATTACK_MENU_RETRIES)
-            logging.info("Failure screenshot saved to %s", failure_path.as_posix())
-            return False
-
-        if detection_result.state is not ScreenState.HOME or detection_result.center is None:
-            failure_path = _save_transition_failure_screenshot(screenshot_path)
-            logging.error("Stopping safely because the latest screen is not HOME.")
-            logging.info("Failure screenshot saved to %s", failure_path.as_posix())
-            return False
-
-        logging.info("Retrying transition with freshly detected HOME coordinates")
-
-    return False
-
-
-def _validate_tap_target(detection_result) -> None:
-    if detection_result.center is None:
-        raise ADBError("Cannot tap because no center coordinates were detected.")
-
-    width, height = detection_result.screenshot_size
-    x, y = detection_result.center
-
-    if x < 0 or y < 0:
-        raise ADBError(f"Tap coordinates must be non-negative. Received: ({x}, {y})")
-    if x >= width or y >= height:
-        raise ADBError(
-            f"Tap coordinates are outside the screen bounds. "
-            f"Received ({x}, {y}) for screen size ({width}, {height})."
+    if resource_result.elixir.value is not None:
+        logging.info("Elixir parsed value: %s", resource_result.elixir.value)
+    else:
+        logging.error(
+            "Elixir reading failed. Icon confidence: %.2f, raw OCR text: %r",
+            resource_result.elixir.icon_confidence,
+            resource_result.elixir.raw_ocr_text,
         )
 
+    if resource_result.dark_elixir.value is not None:
+        logging.info("Dark Elixir parsed value: %s", resource_result.dark_elixir.value)
+    else:
+        logging.error(
+            "Dark Elixir reading failed. Icon confidence: %.2f, raw OCR text: %r",
+            resource_result.dark_elixir.icon_confidence,
+            resource_result.dark_elixir.raw_ocr_text,
+        )
 
-def _save_transition_failure_screenshot(screenshot_path: Path) -> Path:
-    DEBUG_DIRECTORY.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = DEBUG_DIRECTORY / f"transition_failed_{timestamp}.png"
-    shutil.copyfile(screenshot_path, output_path)
-    return output_path
+    if resource_result.overall_success:
+        logging.info("Resource reading completed")
+    else:
+        logging.error("Resource reading completed with failures")
+
+    logging.info("No gameplay action was performed")
 
 
 def main() -> int:
@@ -188,53 +147,33 @@ def main() -> int:
         else:
             logging.warning("Clash of Clans is not in the foreground")
 
-        screenshot_path = controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
-        logging.info("Screenshot captured")
-        logging.info("Screenshot saved to %s", screenshot_path.as_posix())
+        detection_result = _detect_current_screen(controller, threshold=args.screen_threshold)
+        _log_detection_result(detection_result)
 
-        detection_result = detect_screen(
-            screenshot_path,
-            threshold=args.screen_threshold,
-            debug_directory=DEBUG_DIRECTORY,
-        )
-
-        if detection_result.state is ScreenState.UNKNOWN:
-            logging.warning("Detected screen: UNKNOWN")
-            logging.info("Best candidate confidence: %.2f", detection_result.best_candidate_confidence or 0.0)
-            if detection_result.debug_image_path:
-                logging.info("Unknown screenshot saved to %s", detection_result.debug_image_path.as_posix())
-        else:
-            logging.info("Detected screen: %s", detection_result.state.value)
-            logging.info("Matched template: %s", detection_result.matched_template_name)
-            logging.info("Confidence: %.2f", detection_result.confidence)
-            if detection_result.center is not None:
-                logging.info("Matched center: (%s, %s)", detection_result.center[0], detection_result.center[1])
-            if detection_result.debug_image_path:
-                logging.info("Debug image saved to %s", detection_result.debug_image_path.as_posix())
-
-        if args.dry_run:
-            _log_dry_run_action(detection_result)
+        if detection_result.state is not ScreenState.ENEMY_BASE:
+            logging.info("This milestone expects ENEMY_BASE. Current screen is %s.", detection_result.state.value)
+            logging.info("No gameplay action was performed")
             return 0
 
-        if detection_result.state is not ScreenState.HOME:
-            logging.info("No transition performed because the current screen is %s", detection_result.state.value)
-            return 0
-
-        transition_succeeded = _transition_home_to_attack_menu(
-            controller=controller,
-            initial_detection=detection_result,
+        resource_reader = ResourceReader()
+        resource_result = resource_reader.read_resources(
+            CURRENT_SCREENSHOT_PATH,
             threshold=args.screen_threshold,
-            delay_seconds=args.delay_seconds,
         )
-        return 0 if transition_succeeded else 1
+        _log_resource_result(resource_result)
+        return 0 if resource_result.overall_success else 1
 
     except ADBError as error:
         logging.error(str(error))
         return 1
+    except ResourceReaderError as error:
+        logging.error(str(error))
+        logging.info("No gameplay action was performed")
+        return 1
     except ScreenDetectionError as error:
         logging.error(str(error))
         return 1
-    except Exception as error:  # pragma: no cover - defensive guard for CLI use
+    except Exception as error:  # pragma: no cover
         logging.exception("Unexpected failure: %s", error)
         return 1
 
