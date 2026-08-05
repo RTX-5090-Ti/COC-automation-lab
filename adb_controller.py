@@ -161,6 +161,11 @@ class ADBController:
             ["shell", "monkey", "-p", package_name, "-c", "android.intent.category.LAUNCHER", "1"]
         )
 
+    def tap(self, x: int, y: int) -> subprocess.CompletedProcess[str]:
+        if x < 0 or y < 0:
+            raise ADBError(f"Tap coordinates must be non-negative. Received: ({x}, {y})")
+        return self.run_command(["shell", "input", "tap", str(x), str(y)])
+
     def capture_screenshot(self, output_path: str | Path) -> Path:
         output = Path(output_path)
         output.parent.mkdir(parents=True, exist_ok=True)

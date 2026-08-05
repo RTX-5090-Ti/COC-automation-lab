@@ -13,10 +13,11 @@ class ScreenDetectionError(Exception):
 
 
 class ScreenState(str, Enum):
-    """Known game screens supported in Milestone 3A."""
+    """Known game screens supported in Milestone 4A."""
 
     HOME = "HOME"
     ATTACK_MENU = "ATTACK_MENU"
+    ENEMY_BASE = "ENEMY_BASE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -48,6 +49,7 @@ class ScreenDetectionResult:
     matched_template_name: str | None
     bounding_box: BoundingBox | None
     center: tuple[int, int] | None
+    screenshot_size: tuple[int, int]
     debug_image_path: Path | None = None
     best_candidate_confidence: float | None = None
 
@@ -63,6 +65,11 @@ REGISTERED_TEMPLATES: tuple[ScreenTemplate, ...] = (
         template_path=Path("templates/attack_menu/find_match_button.png"),
         template_name="find_match_button.png",
     ),
+    ScreenTemplate(
+        state=ScreenState.ENEMY_BASE,
+        template_path=Path("templates/enemy_base/next_button.png"),
+        template_name="next_button.png",
+    ),
 )
 
 
@@ -74,6 +81,8 @@ def detect_screen(
 ) -> ScreenDetectionResult:
     screenshot_file = Path(screenshot_path)
     screenshot = _load_image(screenshot_file, "screenshot")
+    screenshot_height, screenshot_width = screenshot.shape[:2]
+    screenshot_size = (screenshot_width, screenshot_height)
 
     best_valid_match: ScreenDetectionResult | None = None
     best_candidate: ScreenDetectionResult | None = None
@@ -101,6 +110,7 @@ def detect_screen(
             matched_template_name=None,
             bounding_box=None,
             center=None,
+            screenshot_size=screenshot_size,
             debug_image_path=unknown_path,
             best_candidate_confidence=best_candidate.confidence,
         )
@@ -112,6 +122,7 @@ def detect_screen(
         matched_template_name=best_valid_match.matched_template_name,
         bounding_box=best_valid_match.bounding_box,
         center=best_valid_match.center,
+        screenshot_size=screenshot_size,
         debug_image_path=debug_path,
         best_candidate_confidence=best_candidate.confidence,
     )
@@ -141,6 +152,7 @@ def _match_template(
         matched_template_name=screen_template.template_name,
         bounding_box=bounding_box,
         center=center,
+        screenshot_size=(screenshot_width, screenshot_height),
     )
 
 
