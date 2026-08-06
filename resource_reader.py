@@ -22,7 +22,7 @@ class ResourceReaderError(Exception):
 
 @dataclass(frozen=True)
 class ResourceROIConfig:
-    """ROI offsets and size relative to one detected icon."""
+    """ROI settings relative to one detected icon."""
 
     offset_x: int
     offset_y: int
@@ -39,6 +39,7 @@ class ResourceIconConfig:
     roi: ResourceROIConfig
     raw_debug_path: Path
     processed_debug_path: Path
+    minimum_digits: int = 1
 
 
 @dataclass(frozen=True)
@@ -51,11 +52,13 @@ class ResourceReading:
     roi_bounding_box: BoundingBox | None
     raw_ocr_text: str
     success: bool
+    frame_values: tuple[int | None, ...] = ()
+    failure_reason: str | None = None
 
 
 @dataclass(frozen=True)
 class ResourceReadResult:
-    """Combined resource-reading outcome."""
+    """Combined OCR outcome."""
 
     gold: ResourceReading
     elixir: ResourceReading
@@ -70,6 +73,7 @@ RESOURCE_CONFIGS: tuple[ResourceIconConfig, ...] = (
         roi=ResourceROIConfig(offset_x=30, offset_y=-6, width=220, height=44),
         raw_debug_path=OCR_DEBUG_DIRECTORY / "gold_raw.png",
         processed_debug_path=OCR_DEBUG_DIRECTORY / "gold_processed.png",
+        minimum_digits=4,
     ),
     ResourceIconConfig(
         name="elixir",
@@ -77,6 +81,7 @@ RESOURCE_CONFIGS: tuple[ResourceIconConfig, ...] = (
         roi=ResourceROIConfig(offset_x=30, offset_y=-6, width=220, height=44),
         raw_debug_path=OCR_DEBUG_DIRECTORY / "elixir_raw.png",
         processed_debug_path=OCR_DEBUG_DIRECTORY / "elixir_processed.png",
+        minimum_digits=4,
     ),
     ResourceIconConfig(
         name="dark_elixir",
@@ -84,6 +89,7 @@ RESOURCE_CONFIGS: tuple[ResourceIconConfig, ...] = (
         roi=ResourceROIConfig(offset_x=30, offset_y=-6, width=180, height=40),
         raw_debug_path=OCR_DEBUG_DIRECTORY / "dark_elixir_raw.png",
         processed_debug_path=OCR_DEBUG_DIRECTORY / "dark_elixir_processed.png",
+        minimum_digits=3,
     ),
 )
 
@@ -154,6 +160,7 @@ class ResourceReader:
                 roi_bounding_box=None,
                 raw_ocr_text="",
                 success=False,
+                failure_reason=f"{config.name} icon confidence below threshold",
             )
 
         roi_box = self._compute_roi(icon_box, config.roi, screenshot.shape[1], screenshot.shape[0], config.name)
@@ -163,8 +170,7 @@ class ResourceReader:
         processed_roi = self._preprocess_roi(raw_roi)
         cv2.imwrite(str(config.processed_debug_path), processed_roi)
 
-        raw_text = self._run_ocr(config.processed_debug_path)
-        parsed_value = self._parse_numeric_text(raw_text)
+        raw_text, parsed_value = self._extract_best_ocr_value(config)
         return ResourceReading(
             value=parsed_value,
             icon_confidence=icon_confidence,
@@ -172,6 +178,8 @@ class ResourceReader:
             roi_bounding_box=roi_box,
             raw_ocr_text=raw_text,
             success=parsed_value is not None,
+            frame_values=(parsed_value,),
+            failure_reason=None if parsed_value is not None else f"{config.name} OCR failed",
         )
 
     @staticmethod
@@ -218,13 +226,44 @@ class ResourceReader:
         _, thresholded = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         return thresholded
 
-    def _run_ocr(self, processed_image_path: Path) -> str:
+    def _extract_best_ocr_value(self, config: ResourceIconConfig) -> tuple[str, int | None]:
+        ocr_candidates = [
+            self._run_ocr(config.processed_debug_path),
+            self._run_ocr(config.raw_debug_path),
+            self._run_ocr(config.raw_debug_path, psm=6),
+        ]
+
+        best_text = ""
+        best_value: int | None = None
+        best_digits = -1
+
+        for candidate_text in ocr_candidates:
+            parsed_value = self._parse_numeric_text(candidate_text)
+            digit_count = len("".join(re.findall(r"\d+", candidate_text)))
+            if parsed_value is None:
+                continue
+
+            if digit_count > best_digits:
+                best_text = candidate_text
+                best_value = parsed_value
+                best_digits = digit_count
+
+        if best_value is None:
+            fallback_text = next((text for text in ocr_candidates if text.strip()), "")
+            return fallback_text, None
+
+        if best_digits < config.minimum_digits:
+            return best_text, None
+
+        return best_text, best_value
+
+    def _run_ocr(self, image_path: Path, *, psm: int = 7) -> str:
         command = [
             str(self.tesseract_path),
-            str(processed_image_path),
+            str(image_path),
             "stdout",
             "--psm",
-            "7",
+            str(psm),
             "-c",
             "tessedit_char_whitelist=0123456789",
         ]

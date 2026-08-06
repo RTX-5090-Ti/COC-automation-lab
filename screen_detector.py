@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
 
@@ -267,7 +266,6 @@ def _save_match_debug_image(
 
 def _save_unknown_screenshot(screenshot_path: Path, debug_directory: Path) -> Path:
     debug_directory.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = debug_directory / f"unknown_{timestamp}.png"
+    output_path = debug_directory / "unknown_latest.png"
     output_path.write_bytes(screenshot_path.read_bytes())
     return output_path
