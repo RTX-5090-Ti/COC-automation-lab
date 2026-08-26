@@ -5,6 +5,7 @@ from enum import Enum
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from screen_detector import BoundingBox
 
@@ -41,6 +42,7 @@ def save_attack_plan_debug_image(
     screenshot_path: str | Path,
     output_path: str | Path,
     battlefield_roi: BoundingBox,
+    battlefield_polygon: list[tuple[int, int]],
     excluded_regions: list[BoundingBox],
     troop_slot_box: BoundingBox | None,
     attack_plan: AttackPlan,
@@ -50,7 +52,13 @@ def save_attack_plan_debug_image(
         raise ValueError(f"Screenshot file could not be decoded: {screenshot_path}")
 
     annotated = image.copy()
-    _draw_box(annotated, battlefield_roi, (0, 255, 0), "Battlefield ROI")
+    _draw_polygon(
+        annotated,
+        battlefield_polygon,
+        excluded_regions,
+        (255, 0, 0),
+        "Battlefield ROI",
+    )
 
     for index, region in enumerate(excluded_regions, start=1):
         _draw_box(annotated, region, (0, 165, 255), f"Excluded {index}")
@@ -93,3 +101,31 @@ def _draw_box(image: cv2.typing.MatLike, box: BoundingBox, color: tuple[int, int
         2,
         cv2.LINE_AA,
     )
+
+
+def _draw_polygon(
+    image: cv2.typing.MatLike,
+    points: list[tuple[int, int]],
+    excluded_regions: list[BoundingBox],
+    color: tuple[int, int, int],
+    label: str,
+) -> None:
+    polygon = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
+    line_layer = np.zeros_like(image)
+    line_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+    cv2.polylines(line_layer, [polygon], True, color, 6, cv2.LINE_AA)
+    cv2.polylines(line_mask, [polygon], True, 255, 6, cv2.LINE_AA)
+
+    # Do not show the battlefield boundary inside UI exclusion zones.
+    for region in excluded_regions:
+        cv2.rectangle(
+            line_mask,
+            (region.x, region.y),
+            (region.x + region.width, region.y + region.height),
+            0,
+            -1,
+        )
+
+    cv2.copyTo(line_layer, line_mask, image)
+    x, y = points[1]
+    cv2.putText(image, label, (x + 12, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)

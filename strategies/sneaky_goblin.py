@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 from decision_engine import BotConfig
 from screen_detector import BoundingBox
@@ -30,6 +31,7 @@ class StrategyPlanningResult:
     attack_plan: AttackPlan
     troop_slot_result: TemplateMatchResult
     battlefield_roi: BoundingBox
+    battlefield_polygon: list[tuple[int, int]]
     excluded_regions: list[BoundingBox]
 
 
@@ -49,6 +51,7 @@ class SneakyGoblinPlanner:
 
         troop_slot_result = self._detect_troop_slot(screenshot, config.sneaky_goblin_slot_threshold)
         battlefield_roi = self._build_battlefield_roi(width, height, config)
+        battlefield_polygon = self._build_battlefield_polygon(width, height, config)
         excluded_regions = self._build_excluded_regions(width, height, config)
 
         if not troop_slot_result.found or troop_slot_result.bounding_box is None or troop_slot_result.center is None:
@@ -64,10 +67,18 @@ class SneakyGoblinPlanner:
                 ),
                 troop_slot_result=troop_slot_result,
                 battlefield_roi=battlefield_roi,
+                battlefield_polygon=battlefield_polygon,
                 excluded_regions=excluded_regions,
             )
 
-        actions = self._generate_perimeter_sweep_actions(width, height, battlefield_roi, excluded_regions, config)
+        actions = self._generate_perimeter_sweep_actions(
+            width,
+            height,
+            battlefield_roi,
+            battlefield_polygon,
+            excluded_regions,
+            config,
+        )
         if not actions:
             return StrategyPlanningResult(
                 attack_plan=AttackPlan(
@@ -77,10 +88,11 @@ class SneakyGoblinPlanner:
                     screenshot_width=width,
                     screenshot_height=height,
                     troop_slot_center=troop_slot_result.center,
-                    error_message="No valid deployment points could be generated inside the battlefield ROI.",
+                    error_message="No valid deployment points could be generated outside the battlefield boundary.",
                 ),
                 troop_slot_result=troop_slot_result,
                 battlefield_roi=battlefield_roi,
+                battlefield_polygon=battlefield_polygon,
                 excluded_regions=excluded_regions,
             )
 
@@ -97,6 +109,7 @@ class SneakyGoblinPlanner:
                 ),
                 troop_slot_result=troop_slot_result,
                 battlefield_roi=battlefield_roi,
+                battlefield_polygon=battlefield_polygon,
                 excluded_regions=excluded_regions,
             )
 
@@ -112,16 +125,52 @@ class SneakyGoblinPlanner:
             ),
             troop_slot_result=troop_slot_result,
             battlefield_roi=battlefield_roi,
+            battlefield_polygon=battlefield_polygon,
             excluded_regions=excluded_regions,
         )
 
     def _detect_troop_slot(self, screenshot: cv2.typing.MatLike, threshold: float) -> TemplateMatchResult:
-        template = self._load_image(SNEAKY_GOBLIN_TEMPLATE_PATH)
+        return self._detect_template(screenshot, SNEAKY_GOBLIN_TEMPLATE_PATH, threshold, "Sneaky Goblin slot")
+
+    def validate_deployment_action(
+        self,
+        *,
+        screenshot_path: str | Path,
+        config: BotConfig,
+        action: AttackAction,
+    ) -> tuple[BoundingBox, list[BoundingBox]]:
+        screenshot = self._load_image(Path(screenshot_path))
+        height, width = screenshot.shape[:2]
+        battlefield_roi = self._build_battlefield_roi(width, height, config)
+        battlefield_polygon = self._build_battlefield_polygon(width, height, config)
+        excluded_regions = self._build_excluded_regions(width, height, config)
+        if not self._is_valid_point(
+            x=action.x,
+            y=action.y,
+            screenshot_width=width,
+            screenshot_height=height,
+            battlefield_roi=battlefield_roi,
+            battlefield_polygon=battlefield_polygon,
+            excluded_regions=excluded_regions,
+        ):
+            raise SneakyGoblinPlanningError(
+                f"Deployment point is not valid on the current screenshot: ({action.x}, {action.y})."
+            )
+        return battlefield_roi, excluded_regions
+
+    def _detect_template(
+        self,
+        screenshot: cv2.typing.MatLike,
+        template_path: Path,
+        threshold: float,
+        label: str,
+    ) -> TemplateMatchResult:
+        template = self._load_image(template_path)
         screenshot_height, screenshot_width = screenshot.shape[:2]
         template_height, template_width = template.shape[:2]
 
         if template_width > screenshot_width or template_height > screenshot_height:
-            raise SneakyGoblinPlanningError("Sneaky Goblin slot template is larger than the screenshot.")
+            raise SneakyGoblinPlanningError(f"{label} template is larger than the screenshot.")
 
         result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
         _, max_confidence, _, max_location = cv2.minMaxLoc(result)
@@ -140,39 +189,30 @@ class SneakyGoblinPlanner:
         screenshot_width: int,
         screenshot_height: int,
         battlefield_roi: BoundingBox,
+        battlefield_polygon: list[tuple[int, int]],
         excluded_regions: list[BoundingBox],
         config: BotConfig,
     ) -> list[AttackAction]:
-        candidate_points = [
-            (0.10, 0.12),
-            (0.50, 0.08),
-            (0.90, 0.12),
-            (0.08, 0.42),
-            (0.92, 0.42),
-            (0.12, 0.84),
-            (0.50, 0.88),
-            (0.88, 0.84),
-            (0.22, 0.18),
-            (0.78, 0.18),
-            (0.22, 0.78),
-            (0.78, 0.78),
-        ]
-        selected_points = candidate_points[: config.planned_deployment_points]
+        selected_points = self._build_edge_deployment_points(
+            battlefield_polygon=battlefield_polygon,
+            screenshot_width=screenshot_width,
+            screenshot_height=screenshot_height,
+            excluded_regions=excluded_regions,
+            inset_pixels=config.deployment_edge_inset_pixels,
+        )[: config.planned_deployment_points]
 
         actions: list[AttackAction] = []
-        for index, (norm_x, norm_y) in enumerate(selected_points, start=1):
-            x, y = self._normalized_to_pixel(norm_x, norm_y, battlefield_roi)
+        for index, (edge_name, x, y) in enumerate(selected_points, start=1):
             if not self._is_valid_point(
                 x=x,
                 y=y,
                 screenshot_width=screenshot_width,
                 screenshot_height=screenshot_height,
                 battlefield_roi=battlefield_roi,
+                battlefield_polygon=battlefield_polygon,
                 excluded_regions=excluded_regions,
             ):
-                raise SneakyGoblinPlanningError(
-                    f"Generated deployment point {index} is invalid: ({x}, {y})."
-                )
+                continue
 
             actions.append(
                 AttackAction(
@@ -182,11 +222,50 @@ class SneakyGoblinPlanner:
                     y=y,
                     amount=config.goblins_per_point,
                     delay_after_seconds=config.delay_between_groups_seconds,
-                    description=f"Deploy Sneaky Goblin group {index} on the battlefield perimeter.",
+                    description=f"Deploy Sneaky Goblin group {index} near edge {edge_name}.",
                 )
             )
 
         return actions
+
+    @staticmethod
+    def _build_edge_deployment_points(
+        *,
+        battlefield_polygon: list[tuple[int, int]],
+        screenshot_width: int,
+        screenshot_height: int,
+        excluded_regions: list[BoundingBox],
+        inset_pixels: int,
+    ) -> list[tuple[str, int, int]]:
+        top_limit, bottom_limit = _deployment_vertical_limits(
+            screenshot_width, screenshot_height, excluded_regions
+        )
+        center_x = sum(point[0] for point in battlefield_polygon) / len(battlefield_polygon)
+        center_y = sum(point[1] for point in battlefield_polygon) / len(battlefield_polygon)
+        edges = (
+            ("D-A", battlefield_polygon[3], battlefield_polygon[0]),
+            ("A-B", battlefield_polygon[0], battlefield_polygon[1]),
+            ("B-C", battlefield_polygon[1], battlefield_polygon[2]),
+            ("C-D", battlefield_polygon[2], battlefield_polygon[3]),
+        )
+
+        points: list[tuple[str, int, int]] = []
+        for edge_name, start, end in edges:
+            clipped_edge = _clip_edge_to_vertical_band(start, end, top_limit, bottom_limit)
+            if clipped_edge is None:
+                continue
+            clipped_start, clipped_end = clipped_edge
+            for fraction in (0.25, 0.5, 0.75):
+                edge_x = clipped_start[0] + (clipped_end[0] - clipped_start[0]) * fraction
+                edge_y = clipped_start[1] + (clipped_end[1] - clipped_start[1]) * fraction
+                # Deployment points must sit just outside the battlefield boundary.
+                direction_x = edge_x - center_x
+                direction_y = edge_y - center_y
+                direction_length = max((direction_x**2 + direction_y**2) ** 0.5, 1.0)
+                x = round(edge_x + direction_x / direction_length * inset_pixels)
+                y = round(edge_y + direction_y / direction_length * inset_pixels)
+                points.append((edge_name, x, y))
+        return points
 
     @staticmethod
     def _load_image(path: Path) -> cv2.typing.MatLike:
@@ -198,12 +277,6 @@ class SneakyGoblinPlanner:
         return image
 
     @staticmethod
-    def _normalized_to_pixel(norm_x: float, norm_y: float, battlefield_roi: BoundingBox) -> tuple[int, int]:
-        x = battlefield_roi.x + int(norm_x * battlefield_roi.width)
-        y = battlefield_roi.y + int(norm_y * battlefield_roi.height)
-        return x, y
-
-    @staticmethod
     def _is_valid_point(
         *,
         x: int,
@@ -211,11 +284,14 @@ class SneakyGoblinPlanner:
         screenshot_width: int,
         screenshot_height: int,
         battlefield_roi: BoundingBox,
+        battlefield_polygon: list[tuple[int, int]],
         excluded_regions: list[BoundingBox],
     ) -> bool:
         if x < 0 or y < 0 or x >= screenshot_width or y >= screenshot_height:
             return False
         if not _point_in_box(x, y, battlefield_roi):
+            return False
+        if cv2.pointPolygonTest(np.array(battlefield_polygon, dtype=np.int32), (x, y), False) >= 0:
             return False
         return not any(_point_in_box(x, y, region) for region in excluded_regions)
 
@@ -228,6 +304,31 @@ class SneakyGoblinPlanner:
         if x2 <= x1 or y2 <= y1:
             raise SneakyGoblinPlanningError("Battlefield ROI configuration is invalid.")
         return BoundingBox(x=x1, y=y1, width=x2 - x1, height=y2 - y1)
+
+    @staticmethod
+    def _build_battlefield_polygon(
+        screenshot_width: int,
+        screenshot_height: int,
+        config: BotConfig,
+    ) -> list[tuple[int, int]]:
+        return [
+            (
+                int(screenshot_width * config.battlefield_diamond_top_x_ratio),
+                int(screenshot_height * config.battlefield_diamond_top_y_ratio),
+            ),
+            (
+                int(screenshot_width * config.battlefield_diamond_right_x_ratio),
+                int(screenshot_height * config.battlefield_diamond_right_y_ratio),
+            ),
+            (
+                int(screenshot_width * config.battlefield_diamond_bottom_x_ratio),
+                int(screenshot_height * config.battlefield_diamond_bottom_y_ratio),
+            ),
+            (
+                int(screenshot_width * config.battlefield_diamond_left_x_ratio),
+                int(screenshot_height * config.battlefield_diamond_left_y_ratio),
+            ),
+        ]
 
     @staticmethod
     def _build_excluded_regions(screenshot_width: int, screenshot_height: int, config: BotConfig) -> list[BoundingBox]:
@@ -255,3 +356,47 @@ class SneakyGoblinPlanner:
 
 def _point_in_box(x: int, y: int, box: BoundingBox) -> bool:
     return box.x <= x < box.x + box.width and box.y <= y < box.y + box.height
+
+
+def _deployment_vertical_limits(
+    screenshot_width: int,
+    screenshot_height: int,
+    excluded_regions: list[BoundingBox],
+) -> tuple[int, int]:
+    top_limit = 0
+    bottom_limit = screenshot_height - 1
+    for region in excluded_regions:
+        if region.x != 0 or region.width < screenshot_width:
+            continue
+        if region.y <= screenshot_height // 2:
+            top_limit = max(top_limit, region.y + region.height)
+        else:
+            bottom_limit = min(bottom_limit, region.y - 1)
+    return top_limit, bottom_limit
+
+
+def _clip_edge_to_vertical_band(
+    start: tuple[int, int],
+    end: tuple[int, int],
+    minimum_y: int,
+    maximum_y: int,
+) -> tuple[tuple[float, float], tuple[float, float]] | None:
+    start_x, start_y = start
+    end_x, end_y = end
+    delta_x = end_x - start_x
+    delta_y = end_y - start_y
+    if delta_y == 0:
+        if minimum_y <= start_y <= maximum_y:
+            return (float(start_x), float(start_y)), (float(end_x), float(end_y))
+        return None
+
+    first_t = (minimum_y - start_y) / delta_y
+    last_t = (maximum_y - start_y) / delta_y
+    lower_t = max(0.0, min(first_t, last_t))
+    upper_t = min(1.0, max(first_t, last_t))
+    if lower_t >= upper_t:
+        return None
+    return (
+        (start_x + delta_x * lower_t, start_y + delta_y * lower_t),
+        (start_x + delta_x * upper_t, start_y + delta_y * upper_t),
+    )

@@ -46,6 +46,14 @@ class BotConfig:
     battlefield_right_ratio: float
     battlefield_top_ratio: float
     battlefield_bottom_ratio: float
+    battlefield_diamond_top_x_ratio: float
+    battlefield_diamond_top_y_ratio: float
+    battlefield_diamond_right_x_ratio: float
+    battlefield_diamond_right_y_ratio: float
+    battlefield_diamond_bottom_x_ratio: float
+    battlefield_diamond_bottom_y_ratio: float
+    battlefield_diamond_left_x_ratio: float
+    battlefield_diamond_left_y_ratio: float
     next_button_exclude_left_ratio: float
     next_button_exclude_right_ratio: float
     next_button_exclude_top_ratio: float
@@ -54,6 +62,7 @@ class BotConfig:
     top_ui_exclude_bottom_ratio: float
     bottom_ui_exclude_top_ratio: float
     planned_deployment_points: int
+    deployment_edge_inset_pixels: int
     goblins_per_point: int
     delay_between_groups_seconds: float
     maximum_planned_actions: int
@@ -96,6 +105,14 @@ DEFAULT_CONFIG = {
     "battlefieldRightRatio": 0.92,
     "battlefieldTopRatio": 0.15,
     "battlefieldBottomRatio": 0.72,
+    "battlefieldDiamondTopXRatio": 0.50,
+    "battlefieldDiamondTopYRatio": 0.02,
+    "battlefieldDiamondRightXRatio": 0.90,
+    "battlefieldDiamondRightYRatio": 0.47,
+    "battlefieldDiamondBottomXRatio": 0.50,
+    "battlefieldDiamondBottomYRatio": 0.93,
+    "battlefieldDiamondLeftXRatio": 0.12,
+    "battlefieldDiamondLeftYRatio": 0.47,
     "nextButtonExcludeLeftRatio": 0.83,
     "nextButtonExcludeRightRatio": 0.98,
     "nextButtonExcludeTopRatio": 0.60,
@@ -103,7 +120,8 @@ DEFAULT_CONFIG = {
     "topUiExcludeTopRatio": 0.0,
     "topUiExcludeBottomRatio": 0.14,
     "bottomUiExcludeTopRatio": 0.74,
-    "plannedDeploymentPoints": 8,
+    "plannedDeploymentPoints": 12,
+    "deploymentEdgeInsetPixels": 28,
     "goblinsPerPoint": 3,
     "delayBetweenGroupsSeconds": 0.4,
     "maximumPlannedActions": 20,
@@ -141,6 +159,14 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         battlefield_right_ratio=_read_ratio(raw_config, "battlefieldRightRatio"),
         battlefield_top_ratio=_read_ratio(raw_config, "battlefieldTopRatio"),
         battlefield_bottom_ratio=_read_ratio(raw_config, "battlefieldBottomRatio"),
+        battlefield_diamond_top_x_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondTopXRatio"),
+        battlefield_diamond_top_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondTopYRatio"),
+        battlefield_diamond_right_x_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondRightXRatio"),
+        battlefield_diamond_right_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondRightYRatio"),
+        battlefield_diamond_bottom_x_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondBottomXRatio"),
+        battlefield_diamond_bottom_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondBottomYRatio"),
+        battlefield_diamond_left_x_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondLeftXRatio"),
+        battlefield_diamond_left_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondLeftYRatio"),
         next_button_exclude_left_ratio=_read_ratio(raw_config, "nextButtonExcludeLeftRatio"),
         next_button_exclude_right_ratio=_read_ratio(raw_config, "nextButtonExcludeRightRatio"),
         next_button_exclude_top_ratio=_read_ratio(raw_config, "nextButtonExcludeTopRatio"),
@@ -149,6 +175,9 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         top_ui_exclude_bottom_ratio=_read_ratio(raw_config, "topUiExcludeBottomRatio"),
         bottom_ui_exclude_top_ratio=_read_ratio(raw_config, "bottomUiExcludeTopRatio"),
         planned_deployment_points=_read_int_in_range(raw_config, "plannedDeploymentPoints", minimum=1, maximum=12),
+        deployment_edge_inset_pixels=_read_int_in_range(
+            raw_config, "deploymentEdgeInsetPixels", minimum=1, maximum=200
+        ),
         goblins_per_point=_read_int_in_range(raw_config, "goblinsPerPoint", minimum=1, maximum=10),
         delay_between_groups_seconds=_read_non_negative_float(raw_config, "delayBetweenGroupsSeconds"),
         maximum_planned_actions=_read_int_in_range(raw_config, "maximumPlannedActions", minimum=1, maximum=50),
@@ -289,6 +318,15 @@ def _read_ratio(raw_config: dict, key: str) -> float:
     value = raw_config.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 or value > 1:
         raise DecisionEngineError(f"Configuration value '{key}' must be a number between 0 and 1.")
+    return float(value)
+
+
+def _read_diamond_vertex_ratio(raw_config: dict, key: str) -> float:
+    value = raw_config.get(key)
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or value < -1 or value > 2:
+        raise DecisionEngineError(
+            f"Configuration value '{key}' must be a number between -1 and 2."
+        )
     return float(value)
 
 

@@ -44,9 +44,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Minimum normalized battlefield difference required to confirm a new base. Default: 0.05",
     )
     parser.add_argument(
-        "--live",
+        "--no-dry-run",
         action="store_true",
-        help="Override config dryRun=false for one live bounded search session.",
+        help="Allow live ADB actions for explicitly enabled tests.",
+    )
+    parser.add_argument(
+        "--three-point-deployment-test",
+        action="store_true",
+        help="Test exactly 2 Sneaky Goblins at each of planned points 1, 2, and 3.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser
@@ -100,8 +105,9 @@ def main() -> int:
             package_name=args.package,
             screen_threshold=args.screen_threshold,
             debug=args.debug,
-            live_override=args.live,
+            live_override=args.no_dry_run,
             battlefield_diff_threshold=args.battlefield_diff_threshold,
+            three_point_deployment_test=args.three_point_deployment_test,
         )
         return search_controller.run()
 

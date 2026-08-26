@@ -14,7 +14,7 @@ from battlefield_fingerprint import (
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
 from resource_reader import ResourceReadResult, ResourceReader
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
-from strategies.attack_plan import save_attack_plan_debug_image
+from strategies.attack_plan import AttackAction, AttackPlan, save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
 
 
@@ -22,6 +22,9 @@ CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
 DEBUG_DIRECTORY = Path("screenshots/debug")
 DEFAULT_BATTLEFIELD_DIFF_THRESHOLD = 0.05
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
+TEST_DEPLOYMENT_GROUPS = 3
+TEST_GOBLINS_PER_GROUP = 2
+TROOP_SELECTION_DELAY_SECONDS = 0.2
 
 
 class SearchControllerError(Exception):
@@ -51,6 +54,7 @@ class SearchController:
         debug: bool = False,
         live_override: bool = False,
         battlefield_diff_threshold: float = DEFAULT_BATTLEFIELD_DIFF_THRESHOLD,
+        three_point_deployment_test: bool = False,
     ) -> None:
         self.adb_controller = adb_controller
         self.resource_reader = resource_reader
@@ -60,6 +64,7 @@ class SearchController:
         self.debug = debug
         self.dry_run = False if live_override else bot_config.dry_run
         self.battlefield_diff_threshold = battlefield_diff_threshold
+        self.three_point_deployment_test = three_point_deployment_test
         self.sneaky_goblin_planner = SneakyGoblinPlanner()
 
     def run(self) -> int:
@@ -87,6 +92,11 @@ class SearchController:
 
             if result.decision_result.decision is Decision.ATTACK:
                 return self._handle_attack_found(start_time=start_time, counters=counters)
+
+            if self.three_point_deployment_test:
+                logging.info("Three-point deployment test requires an ATTACK decision; stopping without tapping Next")
+                logging.info("No troop was deployed")
+                return 0
 
             if result.decision_result.decision is Decision.UNDECIDED:
                 counters.unreadable_bases += 1
@@ -344,6 +354,7 @@ class SearchController:
             screenshot_path=CURRENT_SCREENSHOT_PATH,
             output_path=ATTACK_PLAN_DEBUG_PATH,
             battlefield_roi=planning_result.battlefield_roi,
+            battlefield_polygon=planning_result.battlefield_polygon,
             excluded_regions=planning_result.excluded_regions,
             troop_slot_box=troop_slot.bounding_box,
             attack_plan=planning_result.attack_plan,
@@ -354,12 +365,62 @@ class SearchController:
         logging.info("Goblins per group: %s", self.bot_config.goblins_per_point)
         logging.info("Total planned Goblins: %s", total_goblins)
         logging.info("Attack plan debug image saved to %s", debug_path.as_posix())
+        if not self.three_point_deployment_test:
+            logging.info("Attack plan generated; no troop was deployed")
+            return 0
+
+        logging.info("Three-point test: 2 Goblins each at points 1, 2, and 3 (total: 6)")
+        return self._run_three_point_deployment_test(planning_result.attack_plan)
+
+    def _run_three_point_deployment_test(self, attack_plan: AttackPlan) -> int:
+        actions = attack_plan.actions[:TEST_DEPLOYMENT_GROUPS]
+        if len(actions) != TEST_DEPLOYMENT_GROUPS or attack_plan.troop_slot_center is None:
+            logging.error("Three-point deployment test requires points 1, 2, and 3 plus a troop slot.")
+            logging.info("No troop was deployed")
+            return 1
+
+        self._validate_test_actions(attack_plan, actions)
+        point_labels = ", ".join(str(action.sequence_number) for action in actions)
         if self.dry_run:
-            logging.info("Attack plan generated in dry-run mode")
-        else:
-            logging.info("Attack plan execution is not implemented yet")
-        logging.info("No troop was deployed")
+            logging.info(
+                "Dry-run: would deploy %s Sneaky Goblins at each of points %s.",
+                TEST_GOBLINS_PER_GROUP,
+                point_labels,
+            )
+            logging.info("No troop was deployed")
+            return 0
+
+        slot_x, slot_y = attack_plan.troop_slot_center
+        self._assert_game_ready()
+        self.adb_controller.tap(slot_x, slot_y)
+        logging.info("Sneaky Goblin slot tapped once")
+        time.sleep(TROOP_SELECTION_DELAY_SECONDS)
+
+        for action in actions:
+            for _ in range(TEST_GOBLINS_PER_GROUP):
+                self.adb_controller.tap(action.x, action.y)
+            logging.info(
+                "Deployed %s Sneaky Goblins at point %s.",
+                TEST_GOBLINS_PER_GROUP,
+                action.sequence_number,
+            )
+            time.sleep(action.delay_after_seconds)
+
+        logging.info("Three-point deployment test completed: 6 Sneaky Goblins deployed")
+        logging.info("Program stopped; no further attack actions were performed")
         return 0
+
+    @staticmethod
+    def _validate_test_actions(attack_plan: AttackPlan, actions: list[AttackAction]) -> None:
+        for action in actions:
+            if action.x < 0 or action.y < 0:
+                raise SearchControllerError(
+                    f"Deployment point {action.sequence_number} has negative coordinates."
+                )
+            if action.x >= attack_plan.screenshot_width or action.y >= attack_plan.screenshot_height:
+                raise SearchControllerError(
+                    f"Deployment point {action.sequence_number} is outside the current screenshot."
+                )
 
     def _capture_and_detect_screen(self) -> ScreenDetectionResult:
         self._assert_game_ready()
