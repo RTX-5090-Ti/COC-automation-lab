@@ -32,6 +32,18 @@ class BoundingBox:
 
 
 @dataclass(frozen=True)
+class TemplateDetectionResult:
+    """Result of matching one standalone UI template."""
+
+    found: bool
+    confidence: float
+    template_name: str
+    bounding_box: BoundingBox
+    center: tuple[int, int]
+    screenshot_size: tuple[int, int]
+
+
+@dataclass(frozen=True)
 class ScreenTemplate:
     """Template registration for one known screen."""
 
@@ -142,6 +154,36 @@ def detect_screen(
         action_center=best_valid_match.action_center,
         debug_image_path=debug_path,
         best_candidate_confidence=best_candidate.confidence,
+    )
+
+
+def detect_template(
+    screenshot_path: str | Path,
+    template_path: str | Path,
+    *,
+    threshold: float = 0.85,
+) -> TemplateDetectionResult:
+    """Match one stable UI template against a screenshot."""
+    screenshot_file = Path(screenshot_path)
+    template_file = Path(template_path)
+    screenshot = _load_image(screenshot_file, "screenshot")
+    template = _load_image(template_file, f"template {template_file.name}")
+    screenshot_height, screenshot_width = screenshot.shape[:2]
+    template_height, template_width = template.shape[:2]
+    if template_width > screenshot_width or template_height > screenshot_height:
+        raise ScreenDetectionError(f"Template is larger than the screenshot: {template_file.name}")
+
+    match_result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+    _, max_confidence, _, max_location = cv2.minMaxLoc(match_result)
+    x, y = max_location
+    bounding_box = BoundingBox(x=x, y=y, width=template_width, height=template_height)
+    return TemplateDetectionResult(
+        found=float(max_confidence) >= threshold,
+        confidence=float(max_confidence),
+        template_name=template_file.name,
+        bounding_box=bounding_box,
+        center=(x + template_width // 2, y + template_height // 2),
+        screenshot_size=(screenshot_width, screenshot_height),
     )
 
 

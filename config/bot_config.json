@@ -33,9 +33,13 @@
   "topUiExcludeTopRatio": 0.0,
   "topUiExcludeBottomRatio": 0.14,
   "bottomUiExcludeTopRatio": 0.74,
-  "plannedDeploymentPoints": 12,
+  "plannedDeploymentPoints": 27,
+  "deploymentPointsDA": 7,
+  "deploymentPointsAB": 8,
+  "deploymentPointsBC": 6,
+  "deploymentPointsCD": 6,
   "deploymentEdgeInsetPixels": 28,
   "goblinsPerPoint": 3,
   "delayBetweenGroupsSeconds": 0.4,
-  "maximumPlannedActions": 20
+  "maximumPlannedActions": 27
 }

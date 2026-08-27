@@ -199,6 +199,12 @@ class SneakyGoblinPlanner:
             screenshot_height=screenshot_height,
             excluded_regions=excluded_regions,
             inset_pixels=config.deployment_edge_inset_pixels,
+            edge_point_counts=(
+                config.deployment_points_da,
+                config.deployment_points_ab,
+                config.deployment_points_bc,
+                config.deployment_points_cd,
+            ),
         )[: config.planned_deployment_points]
 
         actions: list[AttackAction] = []
@@ -236,6 +242,7 @@ class SneakyGoblinPlanner:
         screenshot_height: int,
         excluded_regions: list[BoundingBox],
         inset_pixels: int,
+        edge_point_counts: tuple[int, int, int, int],
     ) -> list[tuple[str, int, int]]:
         top_limit, bottom_limit = _deployment_vertical_limits(
             screenshot_width, screenshot_height, excluded_regions
@@ -243,19 +250,20 @@ class SneakyGoblinPlanner:
         center_x = sum(point[0] for point in battlefield_polygon) / len(battlefield_polygon)
         center_y = sum(point[1] for point in battlefield_polygon) / len(battlefield_polygon)
         edges = (
-            ("D-A", battlefield_polygon[3], battlefield_polygon[0]),
-            ("A-B", battlefield_polygon[0], battlefield_polygon[1]),
-            ("B-C", battlefield_polygon[1], battlefield_polygon[2]),
-            ("C-D", battlefield_polygon[2], battlefield_polygon[3]),
+            ("D-A", battlefield_polygon[3], battlefield_polygon[0], edge_point_counts[0]),
+            ("A-B", battlefield_polygon[0], battlefield_polygon[1], edge_point_counts[1]),
+            ("B-C", battlefield_polygon[1], battlefield_polygon[2], edge_point_counts[2]),
+            ("C-D", battlefield_polygon[2], battlefield_polygon[3], edge_point_counts[3]),
         )
 
         points: list[tuple[str, int, int]] = []
-        for edge_name, start, end in edges:
+        for edge_name, start, end, point_count in edges:
             clipped_edge = _clip_edge_to_vertical_band(start, end, top_limit, bottom_limit)
             if clipped_edge is None:
                 continue
             clipped_start, clipped_end = clipped_edge
-            for fraction in (0.25, 0.5, 0.75):
+            for point_index in range(1, point_count + 1):
+                fraction = point_index / (point_count + 1)
                 edge_x = clipped_start[0] + (clipped_end[0] - clipped_start[0]) * fraction
                 edge_y = clipped_start[1] + (clipped_end[1] - clipped_start[1]) * fraction
                 # Deployment points must sit just outside the battlefield boundary.

@@ -5,11 +5,13 @@ import logging
 import sys
 
 from adb_controller import ADBController, ADBError
+from battle_end_controller import BattleEndController, BattleEndControllerError
 from battlefield_fingerprint import BattlefieldFingerprintError
 from decision_engine import DecisionEngineError, load_bot_config
 from resource_reader import ResourceReader, ResourceReaderError
 from screen_detector import ScreenDetectionError
 from search_controller import SearchController, SearchControllerError
+from trial_flow_controller import TrialFlowController, TrialFlowControllerError
 
 
 DEFAULT_PACKAGE_NAME = "com.supercell.clashofclans"
@@ -48,10 +50,34 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow live ADB actions for explicitly enabled tests.",
     )
-    parser.add_argument(
+    action_group = parser.add_mutually_exclusive_group()
+    action_group.add_argument(
         "--three-point-deployment-test",
         action="store_true",
         help="Test exactly 2 Sneaky Goblins at each of planned points 1, 2, and 3.",
+    )
+    action_group.add_argument(
+        "--end-battle-test",
+        "--end-battle-no-deployment-test",
+        dest="end_battle_test",
+        action="store_true",
+        help="Test one ENEMY_BASE to HOME transition, with or without the confirmation dialog.",
+    )
+    action_group.add_argument(
+        "--full-flow-test",
+        action="store_true",
+        help="Run one HOME -> ENEMY_BASE -> HOME resource-search trial without deploying troops.",
+    )
+    action_group.add_argument(
+        "--full-flow-two-point-deployment-test",
+        action="store_true",
+        help="Run one full flow, deploy 2 Goblins at points 1 and 2, then return HOME.",
+    )
+    parser.add_argument(
+        "--return-home-timeout-seconds",
+        type=float,
+        default=10.0,
+        help="Maximum wait after End Battle before HOME must appear. Default: 10 seconds.",
     )
     parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
     return parser
@@ -97,6 +123,29 @@ def main() -> int:
         else:
             logging.warning("Clash of Clans is not in the foreground")
 
+        if args.end_battle_test:
+            if args.return_home_timeout_seconds <= 0:
+                parser.error("--return-home-timeout-seconds must be greater than zero.")
+            return BattleEndController(
+                adb_controller=controller,
+                package_name=args.package,
+                threshold=args.screen_threshold,
+                dry_run=False if args.no_dry_run else bot_config.dry_run,
+                return_home_timeout_seconds=args.return_home_timeout_seconds,
+            ).run()
+
+        if args.full_flow_test or args.full_flow_two_point_deployment_test:
+            return TrialFlowController(
+                adb_controller=controller,
+                resource_reader=ResourceReader(),
+                bot_config=bot_config,
+                package_name=args.package,
+                screen_threshold=args.screen_threshold,
+                battlefield_diff_threshold=args.battlefield_diff_threshold,
+                dry_run=False if args.no_dry_run else bot_config.dry_run,
+                two_point_deployment_test=args.full_flow_two_point_deployment_test,
+            ).run()
+
         resource_reader = ResourceReader()
         search_controller = SearchController(
             adb_controller=controller,
@@ -112,6 +161,12 @@ def main() -> int:
         return search_controller.run()
 
     except SearchControllerError:
+        return 1
+    except BattleEndControllerError as error:
+        logging.error(str(error))
+        return 1
+    except TrialFlowControllerError as error:
+        logging.error(str(error))
         return 1
     except (ADBError, BattlefieldFingerprintError) as error:
         logging.error(str(error))

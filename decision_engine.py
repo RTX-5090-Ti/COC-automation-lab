@@ -62,6 +62,10 @@ class BotConfig:
     top_ui_exclude_bottom_ratio: float
     bottom_ui_exclude_top_ratio: float
     planned_deployment_points: int
+    deployment_points_da: int
+    deployment_points_ab: int
+    deployment_points_bc: int
+    deployment_points_cd: int
     deployment_edge_inset_pixels: int
     goblins_per_point: int
     delay_between_groups_seconds: float
@@ -120,7 +124,11 @@ DEFAULT_CONFIG = {
     "topUiExcludeTopRatio": 0.0,
     "topUiExcludeBottomRatio": 0.14,
     "bottomUiExcludeTopRatio": 0.74,
-    "plannedDeploymentPoints": 12,
+    "plannedDeploymentPoints": 27,
+    "deploymentPointsDA": 7,
+    "deploymentPointsAB": 8,
+    "deploymentPointsBC": 6,
+    "deploymentPointsCD": 6,
     "deploymentEdgeInsetPixels": 28,
     "goblinsPerPoint": 3,
     "delayBetweenGroupsSeconds": 0.4,
@@ -174,7 +182,11 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         top_ui_exclude_top_ratio=_read_ratio(raw_config, "topUiExcludeTopRatio"),
         top_ui_exclude_bottom_ratio=_read_ratio(raw_config, "topUiExcludeBottomRatio"),
         bottom_ui_exclude_top_ratio=_read_ratio(raw_config, "bottomUiExcludeTopRatio"),
-        planned_deployment_points=_read_int_in_range(raw_config, "plannedDeploymentPoints", minimum=1, maximum=12),
+        planned_deployment_points=_read_int_in_range(raw_config, "plannedDeploymentPoints", minimum=1, maximum=50),
+        deployment_points_da=_read_int_in_range(raw_config, "deploymentPointsDA", minimum=1, maximum=20),
+        deployment_points_ab=_read_int_in_range(raw_config, "deploymentPointsAB", minimum=1, maximum=20),
+        deployment_points_bc=_read_int_in_range(raw_config, "deploymentPointsBC", minimum=1, maximum=20),
+        deployment_points_cd=_read_int_in_range(raw_config, "deploymentPointsCD", minimum=1, maximum=20),
         deployment_edge_inset_pixels=_read_int_in_range(
             raw_config, "deploymentEdgeInsetPixels", minimum=1, maximum=200
         ),
@@ -356,6 +368,16 @@ def _validate_limit_relationships(config: BotConfig) -> None:
     if config.maximum_planned_actions < config.planned_deployment_points:
         raise DecisionEngineError(
             "Configuration value 'maximumPlannedActions' must be at least plannedDeploymentPoints."
+        )
+    available_edge_points = (
+        config.deployment_points_da
+        + config.deployment_points_ab
+        + config.deployment_points_bc
+        + config.deployment_points_cd
+    )
+    if config.planned_deployment_points > available_edge_points:
+        raise DecisionEngineError(
+            "Configuration value 'plannedDeploymentPoints' exceeds the configured edge point total."
         )
     if config.strategy != "sneaky_goblin":
         raise DecisionEngineError("Configuration value 'strategy' must currently be 'sneaky_goblin'.")
