@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from pathlib import Path
 
@@ -18,7 +19,6 @@ from tap_utils import TapPointError, select_random_point_in_box
 CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
 DEBUG_DIRECTORY = Path("screenshots/debug")
 STATE_TRANSITION_TIMEOUT_SECONDS = 15.0
-TWO_POINT_DEPLOYMENT_GROUPS = 2
 GOBLINS_PER_TEST_POINT = 2
 POST_DEPLOYMENT_WAIT_SECONDS = 5.0
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
@@ -42,6 +42,7 @@ class TrialFlowController:
         battlefield_diff_threshold: float,
         dry_run: bool,
         two_point_deployment_test: bool = False,
+        deployment_point_test_indices: tuple[int, ...] = (),
     ) -> None:
         self.adb_controller = adb_controller
         self.resource_reader = resource_reader
@@ -51,6 +52,7 @@ class TrialFlowController:
         self.battlefield_diff_threshold = battlefield_diff_threshold
         self.dry_run = dry_run
         self.two_point_deployment_test = two_point_deployment_test
+        self.deployment_point_test_indices = deployment_point_test_indices
 
     def run(self) -> int:
         home = self._capture_and_detect()
@@ -79,6 +81,7 @@ class TrialFlowController:
             ScreenState.ENEMY_BASE,
             self.bot_config.new_base_timeout_seconds,
         )
+        enemy_base = self._wait_for_enemy_base_to_settle()
         bases_checked = 1
         next_taps = 0
         while True:
@@ -104,9 +107,12 @@ class TrialFlowController:
             next_taps += 1
             bases_checked += 1
             enemy_base = self._wait_for_different_enemy_base(old_fingerprint)
+            enemy_base = self._wait_for_enemy_base_to_settle()
 
+        if self.deployment_point_test_indices:
+            return self._deploy_points_then_end_battle(self.deployment_point_test_indices)
         if self.two_point_deployment_test:
-            return self._deploy_two_points_then_end_battle()
+            return self._deploy_points_then_end_battle((1, 2))
 
         logging.info("Suitable base found; ending the battle without deploying troops")
         return BattleEndController(
@@ -117,7 +123,7 @@ class TrialFlowController:
             return_home_timeout_seconds=self.bot_config.new_base_timeout_seconds,
         ).run()
 
-    def _deploy_two_points_then_end_battle(self) -> int:
+    def _deploy_points_then_end_battle(self, point_indices: tuple[int, ...]) -> int:
         try:
             planning_result = SneakyGoblinPlanner().plan_attack(
                 screenshot_path=CURRENT_SCREENSHOT_PATH,
@@ -128,9 +134,10 @@ class TrialFlowController:
 
         plan = planning_result.attack_plan
         slot = planning_result.troop_slot_result
-        actions = plan.actions[:TWO_POINT_DEPLOYMENT_GROUPS]
-        if not plan.valid or slot.bounding_box is None or len(actions) != TWO_POINT_DEPLOYMENT_GROUPS:
-            raise TrialFlowControllerError(plan.error_message or "Two deployment points could not be generated.")
+        actions_by_number = {action.sequence_number: action for action in plan.actions}
+        actions = [actions_by_number[index] for index in point_indices if index in actions_by_number]
+        if not plan.valid or slot.bounding_box is None or len(actions) != len(point_indices):
+            raise TrialFlowControllerError(plan.error_message or "Requested deployment points could not be generated.")
 
         save_attack_plan_debug_image(
             screenshot_path=CURRENT_SCREENSHOT_PATH,
@@ -140,16 +147,14 @@ class TrialFlowController:
             excluded_regions=planning_result.excluded_regions,
             troop_slot_box=slot.bounding_box,
             attack_plan=plan,
+            debug_boundary_da_end_ratio=self.bot_config.debug_boundary_da_end_ratio,
+            debug_boundary_bh_length_ratio=self.bot_config.debug_boundary_bh_length_ratio,
+            debug_boundary_bk_length_ratio=self.bot_config.debug_boundary_bk_length_ratio,
         )
         logging.info("Attack plan debug image saved to %s", ATTACK_PLAN_DEBUG_PATH.as_posix())
         logging.info(
-            "Two-point deployment test: point %s (%s, %s), point %s (%s, %s)",
-            actions[0].sequence_number,
-            actions[0].x,
-            actions[0].y,
-            actions[1].sequence_number,
-            actions[1].x,
-            actions[1].y,
+            "Deployment-point full-flow test: points %s",
+            ", ".join(str(action.sequence_number) for action in actions),
         )
         slot_tap_point = self._select_slot_tap_point(slot.bounding_box, plan)
 
@@ -160,8 +165,10 @@ class TrialFlowController:
 
         for action in actions:
             self._validate_deployment_point(action.x, action.y, plan.screenshot_width, plan.screenshot_height)
-            for _ in range(GOBLINS_PER_TEST_POINT):
+            for tap_index in range(GOBLINS_PER_TEST_POINT):
                 self.adb_controller.tap(action.x, action.y)
+                if tap_index < GOBLINS_PER_TEST_POINT - 1:
+                    time.sleep(self.bot_config.delay_between_taps_seconds)
             logging.info(
                 "Deployed %s Sneaky Goblins at point %s (%s, %s)",
                 GOBLINS_PER_TEST_POINT,
@@ -241,6 +248,19 @@ class TrialFlowController:
             "Timed out waiting for a different ENEMY_BASE after one Next tap. "
             f"Last detected state was {last_state.value}."
         )
+
+    def _wait_for_enemy_base_to_settle(self) -> ScreenDetectionResult:
+        delay_seconds = random.choice(self.bot_config.enemy_base_settle_seconds_options)
+        if delay_seconds > 0:
+            logging.info("Waiting %.1f seconds for the enemy base to finish loading", delay_seconds)
+            time.sleep(delay_seconds)
+
+        detection = self._capture_and_detect()
+        if detection.state is not ScreenState.ENEMY_BASE:
+            raise TrialFlowControllerError(
+                f"Expected ENEMY_BASE after the loading delay; detected {detection.state.value}."
+            )
+        return detection
 
     def _tap_detection(
         self,

@@ -17,6 +17,16 @@ from trial_flow_controller import TrialFlowController, TrialFlowControllerError
 DEFAULT_PACKAGE_NAME = "com.supercell.clashofclans"
 
 
+def parse_deployment_point_indices(value: str) -> tuple[int, ...]:
+    try:
+        indices = tuple(int(item.strip()) for item in value.split(",") if item.strip())
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Deployment points must be comma-separated positive integers.") from error
+    if not indices or any(index <= 0 for index in indices) or len(set(indices)) != len(indices):
+        raise argparse.ArgumentTypeError("Deployment points must be unique positive integers.")
+    return indices
+
+
 def configure_logging(debug: bool) -> None:
     level = logging.DEBUG if debug else logging.INFO
     logging.basicConfig(level=level, format="[%(levelname)s] %(message)s")
@@ -57,6 +67,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Test exactly 2 Sneaky Goblins at each of planned points 1, 2, and 3.",
     )
     action_group.add_argument(
+        "--deployment-points-test",
+        type=parse_deployment_point_indices,
+        metavar="POINTS",
+        help="Test exactly 2 Sneaky Goblins at comma-separated planned point numbers, then stop.",
+    )
+    action_group.add_argument(
         "--end-battle-test",
         "--end-battle-no-deployment-test",
         dest="end_battle_test",
@@ -72,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--full-flow-two-point-deployment-test",
         action="store_true",
         help="Run one full flow, deploy 2 Goblins at points 1 and 2, then return HOME.",
+    )
+    action_group.add_argument(
+        "--full-flow-deployment-points-test",
+        type=parse_deployment_point_indices,
+        metavar="POINTS",
+        help="Run one full flow, deploy 2 Goblins at the selected points, wait 5 seconds, then return HOME.",
     )
     parser.add_argument(
         "--return-home-timeout-seconds",
@@ -134,7 +156,11 @@ def main() -> int:
                 return_home_timeout_seconds=args.return_home_timeout_seconds,
             ).run()
 
-        if args.full_flow_test or args.full_flow_two_point_deployment_test:
+        if (
+            args.full_flow_test
+            or args.full_flow_two_point_deployment_test
+            or args.full_flow_deployment_points_test
+        ):
             return TrialFlowController(
                 adb_controller=controller,
                 resource_reader=ResourceReader(),
@@ -144,6 +170,7 @@ def main() -> int:
                 battlefield_diff_threshold=args.battlefield_diff_threshold,
                 dry_run=False if args.no_dry_run else bot_config.dry_run,
                 two_point_deployment_test=args.full_flow_two_point_deployment_test,
+                deployment_point_test_indices=args.full_flow_deployment_points_test or (),
             ).run()
 
         resource_reader = ResourceReader()
@@ -157,6 +184,7 @@ def main() -> int:
             live_override=args.no_dry_run,
             battlefield_diff_threshold=args.battlefield_diff_threshold,
             three_point_deployment_test=args.three_point_deployment_test,
+            deployment_point_test_indices=args.deployment_points_test or (),
         )
         return search_controller.run()
 

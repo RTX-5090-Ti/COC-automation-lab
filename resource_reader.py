@@ -74,7 +74,8 @@ RESOURCE_CONFIGS: tuple[FixedResourceROIConfig, ...] = (
         roi=BoundingBox(x=90, y=202, width=190, height=46),
         raw_debug_path=OCR_DEBUG_DIRECTORY / "elixir_raw.png",
         processed_debug_path=OCR_DEBUG_DIRECTORY / "elixir_processed.png",
-        ocr_psm=7,
+        # The elixir row's rounded glyphs are recognized more reliably as a single word.
+        ocr_psm=10,
         minimum_digits=4,
     ),
     FixedResourceROIConfig(

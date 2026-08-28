@@ -205,11 +205,18 @@ class SneakyGoblinPlanner:
                 config.deployment_points_bc,
                 config.deployment_points_cd,
             ),
+            guide_ratios=(
+                config.debug_boundary_da_end_ratio,
+                config.debug_boundary_bh_length_ratio,
+                config.debug_boundary_bk_length_ratio,
+            ),
         )[: config.planned_deployment_points]
 
         actions: list[AttackAction] = []
-        for index, (edge_name, x, y) in enumerate(selected_points, start=1):
-            if not self._is_valid_point(
+        for edge_name, x, y in selected_points:
+            if x < 0 or y < 0 or x >= screenshot_width or y >= screenshot_height:
+                continue
+            if edge_name == "C-D" and not self._is_valid_point(
                 x=x,
                 y=y,
                 screenshot_width=screenshot_width,
@@ -220,6 +227,7 @@ class SneakyGoblinPlanner:
             ):
                 continue
 
+            index = len(actions) + 1
             actions.append(
                 AttackAction(
                     sequence_number=index,
@@ -243,30 +251,33 @@ class SneakyGoblinPlanner:
         excluded_regions: list[BoundingBox],
         inset_pixels: int,
         edge_point_counts: tuple[int, int, int, int],
+        guide_ratios: tuple[float, float, float],
     ) -> list[tuple[str, int, int]]:
+        top, right, bottom, left = battlefield_polygon
+        da_ratio, bh_ratio, bk_ratio = guide_ratios
+        point_e = _interpolate_point(left, top, da_ratio)
+        point_h = _interpolate_point(right, top, bh_ratio)
+        point_k = _interpolate_point(right, bottom, bk_ratio)
         top_limit, bottom_limit = _deployment_vertical_limits(
             screenshot_width, screenshot_height, excluded_regions
         )
+        clipped_cd = _clip_edge_to_vertical_band(bottom, left, top_limit, bottom_limit)
+        edges = (
+            ("D-E", left, point_e, edge_point_counts[0]),
+            ("B-H", right, point_h, edge_point_counts[1]),
+            ("B-K", right, point_k, edge_point_counts[2]),
+        )
+        if clipped_cd is not None:
+            edges += (("C-D", clipped_cd[0], clipped_cd[1], edge_point_counts[3]),)
+
         center_x = sum(point[0] for point in battlefield_polygon) / len(battlefield_polygon)
         center_y = sum(point[1] for point in battlefield_polygon) / len(battlefield_polygon)
-        edges = (
-            ("D-A", battlefield_polygon[3], battlefield_polygon[0], edge_point_counts[0]),
-            ("A-B", battlefield_polygon[0], battlefield_polygon[1], edge_point_counts[1]),
-            ("B-C", battlefield_polygon[1], battlefield_polygon[2], edge_point_counts[2]),
-            ("C-D", battlefield_polygon[2], battlefield_polygon[3], edge_point_counts[3]),
-        )
-
         points: list[tuple[str, int, int]] = []
         for edge_name, start, end, point_count in edges:
-            clipped_edge = _clip_edge_to_vertical_band(start, end, top_limit, bottom_limit)
-            if clipped_edge is None:
-                continue
-            clipped_start, clipped_end = clipped_edge
             for point_index in range(1, point_count + 1):
                 fraction = point_index / (point_count + 1)
-                edge_x = clipped_start[0] + (clipped_end[0] - clipped_start[0]) * fraction
-                edge_y = clipped_start[1] + (clipped_end[1] - clipped_start[1]) * fraction
-                # Deployment points must sit just outside the battlefield boundary.
+                edge_x = start[0] + (end[0] - start[0]) * fraction
+                edge_y = start[1] + (end[1] - start[1]) * fraction
                 direction_x = edge_x - center_x
                 direction_y = edge_y - center_y
                 direction_length = max((direction_x**2 + direction_y**2) ** 0.5, 1.0)
@@ -360,6 +371,15 @@ class SneakyGoblinPlanner:
                 height=screenshot_height - int(screenshot_height * config.bottom_ui_exclude_top_ratio),
             ),
         ]
+
+
+def _interpolate_point(
+    start: tuple[int, int], end: tuple[int, int], fraction: float
+) -> tuple[int, int]:
+    return (
+        round(start[0] + (end[0] - start[0]) * fraction),
+        round(start[1] + (end[1] - start[1]) * fraction),
+    )
 
 
 def _point_in_box(x: int, y: int, box: BoundingBox) -> bool:

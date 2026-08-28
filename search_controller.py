@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from resource_reader import ResourceReadResult, ResourceReader
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
 from strategies.attack_plan import AttackAction, AttackPlan, save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
+from tap_utils import TapPointError, select_random_point_in_box
 
 
 CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
@@ -55,6 +57,7 @@ class SearchController:
         live_override: bool = False,
         battlefield_diff_threshold: float = DEFAULT_BATTLEFIELD_DIFF_THRESHOLD,
         three_point_deployment_test: bool = False,
+        deployment_point_test_indices: tuple[int, ...] = (),
     ) -> None:
         self.adb_controller = adb_controller
         self.resource_reader = resource_reader
@@ -65,6 +68,7 @@ class SearchController:
         self.dry_run = False if live_override else bot_config.dry_run
         self.battlefield_diff_threshold = battlefield_diff_threshold
         self.three_point_deployment_test = three_point_deployment_test
+        self.deployment_point_test_indices = deployment_point_test_indices
         self.sneaky_goblin_planner = SneakyGoblinPlanner()
 
     def run(self) -> int:
@@ -82,6 +86,8 @@ class SearchController:
             logging.info("No gameplay action was performed")
             return 0
 
+        self._wait_for_enemy_base_to_settle(start_time=start_time, counters=counters)
+
         while True:
             self._ensure_runtime_available(start_time)
             self._log_progress(counters)
@@ -93,8 +99,8 @@ class SearchController:
             if result.decision_result.decision is Decision.ATTACK:
                 return self._handle_attack_found(start_time=start_time, counters=counters)
 
-            if self.three_point_deployment_test:
-                logging.info("Three-point deployment test requires an ATTACK decision; stopping without tapping Next")
+            if self.three_point_deployment_test or self.deployment_point_test_indices:
+                logging.info("Deployment-point test requires an ATTACK decision; stopping without tapping Next")
                 logging.info("No troop was deployed")
                 return 0
 
@@ -149,6 +155,7 @@ class SearchController:
                 counters=counters,
                 old_fingerprint=old_fingerprint,
             )
+            self._wait_for_enemy_base_to_settle(start_time=start_time, counters=counters)
             counters.bases_checked += 1
             counters.ocr_attempts_for_current_base = 0
             counters.unknown_state_retries = 0
@@ -320,6 +327,19 @@ class SearchController:
             last_state=last_state,
         )
 
+    def _wait_for_enemy_base_to_settle(
+        self,
+        *,
+        start_time: float,
+        counters: SearchCounters,
+    ) -> ScreenDetectionResult:
+        delay_seconds = random.choice(self.bot_config.enemy_base_settle_seconds_options)
+        if delay_seconds > 0:
+            logging.info("Waiting %.1f seconds for the enemy base to finish loading", delay_seconds)
+            time.sleep(delay_seconds)
+
+        return self._confirm_enemy_base_for_analysis(start_time, counters)
+
     def _handle_attack_found(self, *, start_time: float, counters: SearchCounters) -> int:
         self._ensure_runtime_available(start_time)
         self._confirm_enemy_base_for_analysis(start_time, counters)
@@ -358,6 +378,9 @@ class SearchController:
             excluded_regions=planning_result.excluded_regions,
             troop_slot_box=troop_slot.bounding_box,
             attack_plan=planning_result.attack_plan,
+            debug_boundary_da_end_ratio=self.bot_config.debug_boundary_da_end_ratio,
+            debug_boundary_bh_length_ratio=self.bot_config.debug_boundary_bh_length_ratio,
+            debug_boundary_bk_length_ratio=self.bot_config.debug_boundary_bk_length_ratio,
         )
         total_goblins = sum(action.amount for action in planning_result.attack_plan.actions)
         logging.info("Strategy selected: %s", planning_result.attack_plan.strategy_name)
@@ -365,17 +388,32 @@ class SearchController:
         logging.info("Goblins per group: %s", self.bot_config.goblins_per_point)
         logging.info("Total planned Goblins: %s", total_goblins)
         logging.info("Attack plan debug image saved to %s", debug_path.as_posix())
-        if not self.three_point_deployment_test:
+        if not self.three_point_deployment_test and not self.deployment_point_test_indices:
             logging.info("Attack plan generated; no troop was deployed")
             return 0
 
-        logging.info("Three-point test: 2 Goblins each at points 1, 2, and 3 (total: 6)")
-        return self._run_three_point_deployment_test(planning_result.attack_plan)
+        point_indices = self.deployment_point_test_indices or (1, 2, 3)
+        logging.info(
+            "Deployment-point test: 2 Goblins each at points %s (total: %s)",
+            ", ".join(str(index) for index in point_indices),
+            len(point_indices) * TEST_GOBLINS_PER_GROUP,
+        )
+        return self._run_deployment_points_test(
+            planning_result.attack_plan,
+            troop_slot.bounding_box,
+            point_indices,
+        )
 
-    def _run_three_point_deployment_test(self, attack_plan: AttackPlan) -> int:
-        actions = attack_plan.actions[:TEST_DEPLOYMENT_GROUPS]
-        if len(actions) != TEST_DEPLOYMENT_GROUPS or attack_plan.troop_slot_center is None:
-            logging.error("Three-point deployment test requires points 1, 2, and 3 plus a troop slot.")
+    def _run_deployment_points_test(
+        self,
+        attack_plan: AttackPlan,
+        troop_slot_box,
+        point_indices: tuple[int, ...],
+    ) -> int:
+        actions_by_number = {action.sequence_number: action for action in attack_plan.actions}
+        actions = [actions_by_number[index] for index in point_indices if index in actions_by_number]
+        if len(actions) != len(point_indices) or attack_plan.troop_slot_center is None or troop_slot_box is None:
+            logging.error("Deployment-point test requires all requested points plus a troop slot.")
             logging.info("No troop was deployed")
             return 1
 
@@ -390,15 +428,21 @@ class SearchController:
             logging.info("No troop was deployed")
             return 0
 
-        slot_x, slot_y = attack_plan.troop_slot_center
+        slot_x, slot_y = self._select_random_tap_point(
+            troop_slot_box,
+            (attack_plan.screenshot_width, attack_plan.screenshot_height),
+            "Sneaky Goblin slot",
+        )
         self._assert_game_ready()
         self.adb_controller.tap(slot_x, slot_y)
-        logging.info("Sneaky Goblin slot tapped once")
+        logging.info("Sneaky Goblin slot tapped once at (%s, %s)", slot_x, slot_y)
         time.sleep(TROOP_SELECTION_DELAY_SECONDS)
 
         for action in actions:
-            for _ in range(TEST_GOBLINS_PER_GROUP):
+            for tap_index in range(TEST_GOBLINS_PER_GROUP):
                 self.adb_controller.tap(action.x, action.y)
+                if tap_index < TEST_GOBLINS_PER_GROUP - 1:
+                    time.sleep(self.bot_config.delay_between_taps_seconds)
             logging.info(
                 "Deployed %s Sneaky Goblins at point %s.",
                 TEST_GOBLINS_PER_GROUP,
@@ -406,7 +450,10 @@ class SearchController:
             )
             time.sleep(action.delay_after_seconds)
 
-        logging.info("Three-point deployment test completed: 6 Sneaky Goblins deployed")
+        logging.info(
+            "Deployment-point test completed: %s Sneaky Goblins deployed",
+            len(actions) * TEST_GOBLINS_PER_GROUP,
+        )
         logging.info("Program stopped; no further attack actions were performed")
         return 0
 
@@ -439,14 +486,25 @@ class SearchController:
                 f"Next button confidence is below the threshold: {detection_result.confidence:.2f}"
             )
 
-        if detection_result.center is None:
-            raise SearchControllerError("Next button coordinates are unavailable.")
+        if detection_result.bounding_box is None:
+            raise SearchControllerError("Next button bounding box is unavailable.")
 
-        x, y = detection_result.center
-        width, height = detection_result.screenshot_size
-        if x < 0 or y < 0 or x >= width or y >= height:
-            raise SearchControllerError(f"Next button coordinates are outside the screenshot bounds: ({x}, {y})")
-        return x, y
+        return self._select_random_tap_point(
+            detection_result.bounding_box,
+            detection_result.screenshot_size,
+            "Next button",
+        )
+
+    @staticmethod
+    def _select_random_tap_point(
+        bounding_box,
+        screenshot_size: tuple[int, int],
+        label: str,
+    ) -> tuple[int, int]:
+        try:
+            return select_random_point_in_box(bounding_box, screenshot_size)
+        except TapPointError as error:
+            raise SearchControllerError(f"Could not select a safe random point for {label}: {error}") from error
 
     def _assert_game_ready(self) -> None:
         foreground_app = self.adb_controller.get_foreground_app()

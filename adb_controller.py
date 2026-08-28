@@ -8,7 +8,12 @@ from pathlib import Path
 from typing import Iterable
 
 
-DEFAULT_BLUESTACKS_ADB_PATH = Path(r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe")
+DEFAULT_ADB_PATHS = (
+    Path(r"C:\LDPlayer\LDPlayer14\adb.exe"),
+    Path(r"C:\LDPlayer\LDPlayer9\adb.exe"),
+    Path(r"C:\LDPlayer\LDPlayer\adb.exe"),
+    Path(r"C:\Program Files\BlueStacks_nxt\HD-Adb.exe"),
+)
 
 
 class ADBError(Exception):
@@ -45,7 +50,7 @@ class ADBController:
                 return candidate
             raise ADBError(f"ADB executable not found at configured path: {candidate}")
 
-        env_path = os.getenv("ADB_PATH")
+        env_path = os.getenv("ADB_PATH") or os.getenv("LDPLAYER_ADB_PATH")
         if env_path:
             candidate = Path(env_path).expanduser()
             if candidate.is_file():
@@ -55,12 +60,13 @@ class ADBController:
         if detected_adb:
             return Path(detected_adb)
 
-        if DEFAULT_BLUESTACKS_ADB_PATH.is_file():
-            return DEFAULT_BLUESTACKS_ADB_PATH
+        for default_path in DEFAULT_ADB_PATHS:
+            if default_path.is_file():
+                return default_path
 
         raise ADBError(
             "ADB executable not found. Set the ADB_PATH environment variable, "
-            "install adb in PATH, or install BlueStacks at the default path."
+            "install adb in PATH, or install LDPlayer/BlueStacks at a default path."
         )
 
     def check_adb_available(self) -> bool:
@@ -147,6 +153,15 @@ class ADBController:
         markers = ("mCurrentFocus", "mFocusedApp")
         for line in result.stdout.splitlines():
             if any(marker in line for marker in markers):
+                package_name = self._extract_package_from_focus_line(line)
+                if package_name:
+                    return package_name
+
+        # Android 14 may omit focus markers from Window Manager output.
+        activity_result = self.run_command(["shell", "dumpsys", "activity", "activities"], check=False)
+        activity_markers = ("topResumedActivity", "mResumedActivity", "mCurrentFocus", "mFocusedApp")
+        for line in activity_result.stdout.splitlines():
+            if any(marker in line for marker in activity_markers):
                 package_name = self._extract_package_from_focus_line(line)
                 if package_name:
                     return package_name

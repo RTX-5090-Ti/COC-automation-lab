@@ -38,6 +38,7 @@ class BotConfig:
     max_unknown_state_retries: int
     unknown_retry_delay_seconds: float
     new_base_timeout_seconds: float
+    enemy_base_settle_seconds_options: tuple[float, ...]
     max_runtime_seconds: float
     strategy: str
     sneaky_goblin_mode: str
@@ -67,7 +68,11 @@ class BotConfig:
     deployment_points_bc: int
     deployment_points_cd: int
     deployment_edge_inset_pixels: int
+    debug_boundary_da_end_ratio: float
+    debug_boundary_bh_length_ratio: float
+    debug_boundary_bk_length_ratio: float
     goblins_per_point: int
+    delay_between_taps_seconds: float
     delay_between_groups_seconds: float
     maximum_planned_actions: int
 
@@ -101,6 +106,7 @@ DEFAULT_CONFIG = {
     "maxUnknownStateRetries": 3,
     "unknownRetryDelaySeconds": 1.0,
     "newBaseTimeoutSeconds": 20.0,
+    "enemyBaseSettleSecondsOptions": [1.0, 1.2, 1.5, 1.7, 1.8, 1.9, 2.0, 2.2, 2.5],
     "maxRuntimeSeconds": 180.0,
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
@@ -130,7 +136,11 @@ DEFAULT_CONFIG = {
     "deploymentPointsBC": 6,
     "deploymentPointsCD": 6,
     "deploymentEdgeInsetPixels": 28,
+    "debugBoundaryDaEndRatio": 1.0,
+    "debugBoundaryBhLengthRatio": 1.0,
+    "debugBoundaryBkLengthRatio": 1.0,
     "goblinsPerPoint": 3,
+    "delayBetweenTapsSeconds": 0.1,
     "delayBetweenGroupsSeconds": 0.4,
     "maximumPlannedActions": 20,
 }
@@ -159,6 +169,9 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         max_unknown_state_retries=_read_positive_int(raw_config, "maxUnknownStateRetries"),
         unknown_retry_delay_seconds=_read_positive_float(raw_config, "unknownRetryDelaySeconds"),
         new_base_timeout_seconds=_read_positive_float(raw_config, "newBaseTimeoutSeconds"),
+        enemy_base_settle_seconds_options=_read_non_negative_float_list(
+            raw_config, "enemyBaseSettleSecondsOptions"
+        ),
         max_runtime_seconds=_read_positive_float(raw_config, "maxRuntimeSeconds"),
         strategy=_read_non_empty_string(raw_config, "strategy"),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
@@ -190,7 +203,11 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         deployment_edge_inset_pixels=_read_int_in_range(
             raw_config, "deploymentEdgeInsetPixels", minimum=1, maximum=200
         ),
+        debug_boundary_da_end_ratio=_read_ratio(raw_config, "debugBoundaryDaEndRatio"),
+        debug_boundary_bh_length_ratio=_read_ratio(raw_config, "debugBoundaryBhLengthRatio"),
+        debug_boundary_bk_length_ratio=_read_ratio(raw_config, "debugBoundaryBkLengthRatio"),
         goblins_per_point=_read_int_in_range(raw_config, "goblinsPerPoint", minimum=1, maximum=10),
+        delay_between_taps_seconds=_read_non_negative_float(raw_config, "delayBetweenTapsSeconds"),
         delay_between_groups_seconds=_read_non_negative_float(raw_config, "delayBetweenGroupsSeconds"),
         maximum_planned_actions=_read_int_in_range(raw_config, "maximumPlannedActions", minimum=1, maximum=50),
     )
@@ -324,6 +341,15 @@ def _read_non_negative_float(raw_config: dict, key: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
         raise DecisionEngineError(f"Configuration value '{key}' must be a non-negative number.")
     return float(value)
+
+
+def _read_non_negative_float_list(raw_config: dict, key: str) -> tuple[float, ...]:
+    values = raw_config.get(key)
+    if not isinstance(values, list) or not values:
+        raise DecisionEngineError(f"Configuration value '{key}' must be a non-empty list of non-negative numbers.")
+    if any(isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 for value in values):
+        raise DecisionEngineError(f"Configuration value '{key}' must contain only non-negative numbers.")
+    return tuple(float(value) for value in values)
 
 
 def _read_ratio(raw_config: dict, key: str) -> float:

@@ -46,6 +46,9 @@ def save_attack_plan_debug_image(
     excluded_regions: list[BoundingBox],
     troop_slot_box: BoundingBox | None,
     attack_plan: AttackPlan,
+    debug_boundary_da_end_ratio: float = 1.0,
+    debug_boundary_bh_length_ratio: float = 1.0,
+    debug_boundary_bk_length_ratio: float = 1.0,
 ) -> Path:
     image = cv2.imread(str(screenshot_path), cv2.IMREAD_COLOR)
     if image is None:
@@ -58,6 +61,9 @@ def save_attack_plan_debug_image(
         excluded_regions,
         (255, 0, 0),
         "Battlefield ROI",
+        debug_boundary_da_end_ratio,
+        debug_boundary_bh_length_ratio,
+        debug_boundary_bk_length_ratio,
     )
 
     for index, region in enumerate(excluded_regions, start=1):
@@ -109,12 +115,21 @@ def _draw_polygon(
     excluded_regions: list[BoundingBox],
     color: tuple[int, int, int],
     label: str,
+    debug_boundary_da_end_ratio: float,
+    debug_boundary_bh_length_ratio: float,
+    debug_boundary_bk_length_ratio: float,
 ) -> None:
-    polygon = np.array(points, dtype=np.int32).reshape((-1, 1, 2))
     line_layer = np.zeros_like(image)
     line_mask = np.zeros(image.shape[:2], dtype=np.uint8)
-    cv2.polylines(line_layer, [polygon], True, color, 6, cv2.LINE_AA)
-    cv2.polylines(line_mask, [polygon], True, 255, 6, cv2.LINE_AA)
+    # C-D remains the only boundary edge masked by the UI exclusions.
+    cv2.line(line_layer, points[2], points[3], color, 6, cv2.LINE_AA)
+    cv2.line(line_mask, points[2], points[3], 255, 6, cv2.LINE_AA)
+
+    # Draw only D-E for the DA boundary. E is a visual point on the original DA edge.
+    da_start = points[3]
+    da_end = points[0]
+    e_x = round(da_start[0] + (da_end[0] - da_start[0]) * debug_boundary_da_end_ratio)
+    e_y = round(da_start[1] + (da_end[1] - da_start[1]) * debug_boundary_da_end_ratio)
 
     # Do not show the battlefield boundary inside UI exclusion zones.
     for region in excluded_regions:
@@ -127,5 +142,20 @@ def _draw_polygon(
         )
 
     cv2.copyTo(line_layer, line_mask, image)
+
+    # D-E is a configurable preview guide, so keep it visible over Excluded 2.
+    cv2.line(image, da_start, (e_x, e_y), color, 6, cv2.LINE_AA)
+
+    b_point = points[1]
+    a_point = points[0]
+    h_x = round(b_point[0] + (a_point[0] - b_point[0]) * debug_boundary_bh_length_ratio)
+    h_y = round(b_point[1] + (a_point[1] - b_point[1]) * debug_boundary_bh_length_ratio)
+    cv2.line(image, b_point, (h_x, h_y), color, 6, cv2.LINE_AA)
+
+    c_point = points[2]
+    k_x = round(b_point[0] + (c_point[0] - b_point[0]) * debug_boundary_bk_length_ratio)
+    k_y = round(b_point[1] + (c_point[1] - b_point[1]) * debug_boundary_bk_length_ratio)
+    cv2.line(image, b_point, (k_x, k_y), color, 6, cv2.LINE_AA)
+
     x, y = points[1]
     cv2.putText(image, label, (x + 12, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2, cv2.LINE_AA)
