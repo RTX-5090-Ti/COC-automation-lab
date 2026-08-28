@@ -154,6 +154,7 @@ def main() -> int:
                 threshold=args.screen_threshold,
                 dry_run=False if args.no_dry_run else bot_config.dry_run,
                 return_home_timeout_seconds=args.return_home_timeout_seconds,
+                screen_transition_poll_seconds_options=bot_config.screen_transition_poll_seconds_options,
             ).run()
 
         if (

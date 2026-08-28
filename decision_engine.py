@@ -39,6 +39,7 @@ class BotConfig:
     unknown_retry_delay_seconds: float
     new_base_timeout_seconds: float
     enemy_base_settle_seconds_options: tuple[float, ...]
+    screen_transition_poll_seconds_options: tuple[float, ...]
     max_runtime_seconds: float
     strategy: str
     sneaky_goblin_mode: str
@@ -107,6 +108,7 @@ DEFAULT_CONFIG = {
     "unknownRetryDelaySeconds": 1.0,
     "newBaseTimeoutSeconds": 20.0,
     "enemyBaseSettleSecondsOptions": [1.0, 1.2, 1.5, 1.7, 1.8, 1.9, 2.0, 2.2, 2.5],
+    "screenTransitionPollSecondsOptions": [0.8, 1.0, 1.2, 0.5],
     "maxRuntimeSeconds": 180.0,
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
@@ -172,6 +174,9 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         enemy_base_settle_seconds_options=_read_non_negative_float_list(
             raw_config, "enemyBaseSettleSecondsOptions"
         ),
+        screen_transition_poll_seconds_options=_read_non_negative_float_list(
+            raw_config, "screenTransitionPollSecondsOptions"
+        ),
         max_runtime_seconds=_read_positive_float(raw_config, "maxRuntimeSeconds"),
         strategy=_read_non_empty_string(raw_config, "strategy"),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
@@ -213,6 +218,22 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
     )
     _validate_limit_relationships(config)
     return config
+
+
+def update_bot_config(updates: dict, config_path: str | Path = CONFIG_PATH) -> BotConfig:
+    """Validate and atomically persist a partial config update."""
+    path = Path(config_path)
+    raw_config = json.loads(path.read_text(encoding="utf-8"))
+    merged_config = {**raw_config, **updates}
+    temporary_path = path.with_suffix(f"{path.suffix}.tmp")
+    try:
+        temporary_path.write_text(json.dumps(merged_config, indent=2), encoding="utf-8")
+        config = load_bot_config(temporary_path)
+        temporary_path.replace(path)
+        return config
+    finally:
+        if temporary_path.exists():
+            temporary_path.unlink()
 
 
 def evaluate_resources(resource_result: ResourceReadResult, config: BotConfig) -> DecisionResult:

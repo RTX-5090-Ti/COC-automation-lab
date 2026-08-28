@@ -14,6 +14,7 @@ from battlefield_fingerprint import (
 )
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
 from resource_reader import ResourceReadResult, ResourceReader
+from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
 from strategies.attack_plan import AttackAction, AttackPlan, save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
@@ -58,6 +59,7 @@ class SearchController:
         battlefield_diff_threshold: float = DEFAULT_BATTLEFIELD_DIFF_THRESHOLD,
         three_point_deployment_test: bool = False,
         deployment_point_test_indices: tuple[int, ...] = (),
+        control: RuntimeControl = NULL_RUNTIME_CONTROL,
     ) -> None:
         self.adb_controller = adb_controller
         self.resource_reader = resource_reader
@@ -69,11 +71,13 @@ class SearchController:
         self.battlefield_diff_threshold = battlefield_diff_threshold
         self.three_point_deployment_test = three_point_deployment_test
         self.deployment_point_test_indices = deployment_point_test_indices
+        self.control = control
         self.sneaky_goblin_planner = SneakyGoblinPlanner()
 
     def run(self) -> int:
         start_time = time.monotonic()
         counters = SearchCounters()
+        self.control.log(logging.INFO, "Search controller started")
 
         self._ensure_runtime_available(start_time)
         detection_result = self._capture_and_detect_screen()
@@ -89,6 +93,14 @@ class SearchController:
         self._wait_for_enemy_base_to_settle(start_time=start_time, counters=counters)
 
         while True:
+            self.control.checkpoint("RESOURCE_SEARCH")
+            self.control.report(
+                basesChecked=counters.bases_checked,
+                maxBases=self.bot_config.max_bases_to_check,
+                nextTaps=counters.next_taps,
+                ocrAttempts=counters.ocr_attempts_for_current_base,
+                unknownStateRetries=counters.unknown_state_retries,
+            )
             self._ensure_runtime_available(start_time)
             self._log_progress(counters)
             result = self._analyze_current_base(
@@ -146,6 +158,7 @@ class SearchController:
                 return 0
 
             old_fingerprint = build_battlefield_fingerprint(CURRENT_SCREENSHOT_PATH)
+            self.control.checkpoint("NEXT_BASE")
             self.adb_controller.tap(next_x, next_y)
             counters.next_taps += 1
             logging.info("Next button tapped once")
@@ -295,7 +308,7 @@ class SearchController:
 
         while time.monotonic() - transition_start < self.bot_config.new_base_timeout_seconds:
             self._ensure_runtime_available(start_time)
-            time.sleep(1.0)
+            time.sleep(random.choice(self.bot_config.screen_transition_poll_seconds_options))
             self._assert_game_ready()
 
             detection_result = self._capture_and_detect_screen()
@@ -388,6 +401,14 @@ class SearchController:
         logging.info("Goblins per group: %s", self.bot_config.goblins_per_point)
         logging.info("Total planned Goblins: %s", total_goblins)
         logging.info("Attack plan debug image saved to %s", debug_path.as_posix())
+        self.control.report(
+            attackPlan={
+                "strategy": planning_result.attack_plan.strategy_name,
+                "plannedActionCount": len(planning_result.attack_plan.actions),
+                "deploymentPointCount": len(planning_result.attack_plan.actions),
+            },
+            debugArtifactPaths=[debug_path.as_posix()],
+        )
         if not self.three_point_deployment_test and not self.deployment_point_test_indices:
             logging.info("Attack plan generated; no troop was deployed")
             return 0
@@ -440,6 +461,7 @@ class SearchController:
 
         for action in actions:
             for tap_index in range(TEST_GOBLINS_PER_GROUP):
+                self.control.checkpoint("DEPLOY_TROOPS")
                 self.adb_controller.tap(action.x, action.y)
                 if tap_index < TEST_GOBLINS_PER_GROUP - 1:
                     time.sleep(self.bot_config.delay_between_taps_seconds)
@@ -474,11 +496,18 @@ class SearchController:
         screenshot_path = self.adb_controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
         logging.info("Screenshot captured")
         logging.info("Screenshot saved to %s", screenshot_path.as_posix())
-        return detect_screen(
+        detection = detect_screen(
             screenshot_path,
             threshold=self.screen_threshold,
             debug_directory=DEBUG_DIRECTORY,
         )
+        self.control.report(
+            gameScreen=detection.state.value,
+            screenConfidence=detection.confidence,
+            screenDetails={"template": detection.matched_template_name, "bestCandidateConfidence": detection.best_candidate_confidence},
+            screenshotPath=screenshot_path.as_posix(),
+        )
+        return detection
 
     def _validate_next_button(self, detection_result: ScreenDetectionResult) -> tuple[int, int]:
         if detection_result.confidence < self.screen_threshold:
@@ -507,6 +536,7 @@ class SearchController:
             raise SearchControllerError(f"Could not select a safe random point for {label}: {error}") from error
 
     def _assert_game_ready(self) -> None:
+        self.control.checkpoint()
         foreground_app = self.adb_controller.get_foreground_app()
         if foreground_app != self.package_name:
             raise SearchControllerError(
@@ -557,8 +587,12 @@ class SearchController:
         if detection_result.debug_image_path:
             logging.info("Debug image saved to %s", detection_result.debug_image_path.as_posix())
 
-    @staticmethod
-    def _log_resource_result(resource_result: ResourceReadResult) -> None:
+    def _log_resource_result(self, resource_result: ResourceReadResult) -> None:
+        self.control.report(
+            gold=resource_result.gold.value,
+            elixir=resource_result.elixir.value,
+            darkElixir=resource_result.dark_elixir.value,
+        )
         if resource_result.gold.value is not None:
             logging.info("Gold parsed value: %s", resource_result.gold.value)
         else:
@@ -591,8 +625,8 @@ class SearchController:
         else:
             logging.error("Resource reading completed with failures")
 
-    @staticmethod
-    def _log_decision_result(decision_result: DecisionResult) -> None:
+    def _log_decision_result(self, decision_result: DecisionResult) -> None:
+        self.control.report(decision=decision_result.decision.value, decisionReasons=list(decision_result.reasons))
         SearchController._log_single_decision_line(
             "Gold",
             decision_result.detected_gold,

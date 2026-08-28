@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 from enum import Enum
 from pathlib import Path
 
 from adb_controller import ADBController
 from screen_detector import TemplateDetectionResult, detect_template
+from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from tap_utils import TapPointError, select_random_point_in_box
 
 
@@ -40,14 +42,20 @@ class BattleEndController:
         threshold: float,
         dry_run: bool,
         return_home_timeout_seconds: float,
+        screen_transition_poll_seconds_options: tuple[float, ...],
+        control: RuntimeControl = NULL_RUNTIME_CONTROL,
     ) -> None:
         self.adb_controller = adb_controller
         self.package_name = package_name
         self.threshold = threshold
         self.dry_run = dry_run
         self.return_home_timeout_seconds = return_home_timeout_seconds
+        self.screen_transition_poll_seconds_options = screen_transition_poll_seconds_options
+        self.control = control
 
     def run(self) -> int:
+        self.control.checkpoint("BATTLE_EXIT")
+        self.control.log(logging.INFO, "Battle exit controller started")
         self._capture_screenshot()
         exit_button = self._detect_battle_exit_button()
         if exit_button is None:
@@ -74,6 +82,7 @@ class BattleEndController:
             return 0
 
         self._assert_game_ready()
+        self.control.checkpoint("END_BATTLE")
         self.adb_controller.tap(*tap_point)
         logging.info("%s tapped once", button_label)
         result = self._wait_after_end_battle()
@@ -124,6 +133,7 @@ class BattleEndController:
         last_dialog_confidence = 0.0
         logging.info("Waiting for HOME screen or confirmation dialog...")
         while time.monotonic() < deadline:
+            self.control.checkpoint("WAIT_BATTLE_EXIT")
             self._capture_screenshot_after_delay()
             home_button = detect_template(
                 CURRENT_SCREENSHOT_PATH,
@@ -155,6 +165,7 @@ class BattleEndController:
         last_confidence = 0.0
         logging.info("Waiting for Return Home button...")
         while time.monotonic() < deadline:
+            self.control.checkpoint("WAIT_RETURN_HOME")
             self._capture_screenshot_after_delay()
             return_home = detect_template(
                 CURRENT_SCREENSHOT_PATH,
@@ -172,6 +183,7 @@ class BattleEndController:
         last_confidence = 0.0
         logging.info("Waiting for HOME screen...")
         while time.monotonic() < deadline:
+            self.control.checkpoint("WAIT_HOME")
             self._capture_screenshot_after_delay()
             home_button = detect_template(
                 CURRENT_SCREENSHOT_PATH,
@@ -199,14 +211,16 @@ class BattleEndController:
         except TapPointError as error:
             raise BattleEndControllerError(str(error)) from error
         self._assert_game_ready()
+        self.control.checkpoint(label.upper().replace(" ", "_"))
         self.adb_controller.tap(*tap_point)
         logging.info("%s confidence: %.2f", label, detection.confidence)
         logging.info("%s random tap point: (%s, %s)", label, *tap_point)
 
     def _capture_screenshot_after_delay(self) -> None:
-        time.sleep(1.0)
+        self._wait_with_checkpoints(random.choice(self.screen_transition_poll_seconds_options), "WAIT_SCREEN")
         self._assert_game_ready()
         self.adb_controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
+        self.control.report(screenshotPath=CURRENT_SCREENSHOT_PATH.as_posix())
         logging.info("Screenshot captured")
         logging.info("Screenshot saved to %s", CURRENT_SCREENSHOT_PATH.as_posix())
 
@@ -221,15 +235,23 @@ class BattleEndController:
     def _capture_screenshot(self) -> None:
         self._assert_game_ready()
         self.adb_controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
+        self.control.report(screenshotPath=CURRENT_SCREENSHOT_PATH.as_posix())
         logging.info("Screenshot captured")
         logging.info("Screenshot saved to %s", CURRENT_SCREENSHOT_PATH.as_posix())
 
     def _assert_game_ready(self) -> None:
+        self.control.checkpoint()
         foreground_app = self.adb_controller.get_foreground_app()
         if foreground_app != self.package_name:
             raise BattleEndControllerError(
                 f"Clash of Clans left the foreground. Current foreground app: {foreground_app or 'unknown'}"
             )
+
+    def _wait_with_checkpoints(self, delay_seconds: float, phase: str) -> None:
+        deadline = time.monotonic() + delay_seconds
+        while time.monotonic() < deadline:
+            self.control.checkpoint(phase)
+            time.sleep(min(0.1, deadline - time.monotonic()))
 
     @staticmethod
     def _save_failure_screenshot() -> Path:

@@ -10,6 +10,7 @@ from battle_end_controller import BattleEndController
 from battlefield_fingerprint import build_battlefield_fingerprint, compare_fingerprints
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
 from resource_reader import ResourceReadResult, ResourceReader
+from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
 from strategies.attack_plan import save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
@@ -43,6 +44,7 @@ class TrialFlowController:
         dry_run: bool,
         two_point_deployment_test: bool = False,
         deployment_point_test_indices: tuple[int, ...] = (),
+        control: RuntimeControl = NULL_RUNTIME_CONTROL,
     ) -> None:
         self.adb_controller = adb_controller
         self.resource_reader = resource_reader
@@ -53,8 +55,11 @@ class TrialFlowController:
         self.dry_run = dry_run
         self.two_point_deployment_test = two_point_deployment_test
         self.deployment_point_test_indices = deployment_point_test_indices
+        self.control = control
 
     def run(self) -> int:
+        self.control.checkpoint("HOME_CHECK")
+        self.control.log(logging.INFO, "Full-flow controller started")
         home = self._capture_and_detect()
         if home.state is not ScreenState.HOME:
             raise TrialFlowControllerError(
@@ -84,7 +89,9 @@ class TrialFlowController:
         enemy_base = self._wait_for_enemy_base_to_settle()
         bases_checked = 1
         next_taps = 0
+        self.control.report(basesChecked=bases_checked, maxBases=self.bot_config.max_bases_to_check)
         while True:
+            self.control.checkpoint("RESOURCE_SEARCH")
             decision = self._read_and_decide()
             if decision.decision is Decision.ATTACK:
                 break
@@ -106,6 +113,7 @@ class TrialFlowController:
             self._tap_detection(enemy_base, "Next button")
             next_taps += 1
             bases_checked += 1
+            self.control.report(basesChecked=bases_checked, maxBases=self.bot_config.max_bases_to_check)
             enemy_base = self._wait_for_different_enemy_base(old_fingerprint)
             enemy_base = self._wait_for_enemy_base_to_settle()
 
@@ -121,6 +129,8 @@ class TrialFlowController:
             threshold=self.screen_threshold,
             dry_run=False,
             return_home_timeout_seconds=self.bot_config.new_base_timeout_seconds,
+            screen_transition_poll_seconds_options=self.bot_config.screen_transition_poll_seconds_options,
+            control=self.control,
         ).run()
 
     def _deploy_points_then_end_battle(self, point_indices: tuple[int, ...]) -> int:
@@ -152,6 +162,14 @@ class TrialFlowController:
             debug_boundary_bk_length_ratio=self.bot_config.debug_boundary_bk_length_ratio,
         )
         logging.info("Attack plan debug image saved to %s", ATTACK_PLAN_DEBUG_PATH.as_posix())
+        self.control.report(
+            attackPlan={
+                "strategy": plan.strategy_name,
+                "plannedActionCount": len(plan.actions),
+                "deploymentPointCount": len(actions),
+            },
+            debugArtifactPaths=[ATTACK_PLAN_DEBUG_PATH.as_posix()],
+        )
         logging.info(
             "Deployment-point full-flow test: points %s",
             ", ".join(str(action.sequence_number) for action in actions),
@@ -159,16 +177,18 @@ class TrialFlowController:
         slot_tap_point = self._select_slot_tap_point(slot.bounding_box, plan)
 
         self._assert_game_ready()
+        self.control.checkpoint("SELECT_TROOPS")
         self.adb_controller.tap(*slot_tap_point)
         logging.info("Sneaky Goblin slot tapped once at (%s, %s)", *slot_tap_point)
-        time.sleep(0.2)
+        self._wait_with_checkpoints(0.2, "TROOP_SELECTION_DELAY")
 
         for action in actions:
             self._validate_deployment_point(action.x, action.y, plan.screenshot_width, plan.screenshot_height)
             for tap_index in range(GOBLINS_PER_TEST_POINT):
+                self.control.checkpoint("DEPLOY_TROOPS")
                 self.adb_controller.tap(action.x, action.y)
                 if tap_index < GOBLINS_PER_TEST_POINT - 1:
-                    time.sleep(self.bot_config.delay_between_taps_seconds)
+                    self._wait_with_checkpoints(self.bot_config.delay_between_taps_seconds, "DEPLOYMENT_TAP_DELAY")
             logging.info(
                 "Deployed %s Sneaky Goblins at point %s (%s, %s)",
                 GOBLINS_PER_TEST_POINT,
@@ -178,13 +198,15 @@ class TrialFlowController:
             )
 
         logging.info("Waiting %.1f seconds before surrendering", POST_DEPLOYMENT_WAIT_SECONDS)
-        time.sleep(POST_DEPLOYMENT_WAIT_SECONDS)
+        self._wait_with_checkpoints(POST_DEPLOYMENT_WAIT_SECONDS, "POST_DEPLOYMENT_WAIT")
         return BattleEndController(
             adb_controller=self.adb_controller,
             package_name=self.package_name,
             threshold=self.screen_threshold,
             dry_run=False,
             return_home_timeout_seconds=self.bot_config.new_base_timeout_seconds,
+            screen_transition_poll_seconds_options=self.bot_config.screen_transition_poll_seconds_options,
+            control=self.control,
         ).run()
 
     @staticmethod
@@ -216,7 +238,8 @@ class TrialFlowController:
         deadline = time.monotonic() + timeout_seconds
         last_state = ScreenState.UNKNOWN
         while time.monotonic() < deadline:
-            time.sleep(1.0)
+            self.control.checkpoint(f"WAIT_{expected_state.value}")
+            time.sleep(random.choice(self.bot_config.screen_transition_poll_seconds_options))
             detection = self._capture_and_detect()
             last_state = detection.state
             if detection.state is expected_state:
@@ -231,7 +254,8 @@ class TrialFlowController:
         deadline = time.monotonic() + self.bot_config.new_base_timeout_seconds
         last_state = ScreenState.UNKNOWN
         while time.monotonic() < deadline:
-            time.sleep(1.0)
+            self.control.checkpoint("WAIT_NEW_ENEMY_BASE")
+            time.sleep(random.choice(self.bot_config.screen_transition_poll_seconds_options))
             detection = self._capture_and_detect()
             last_state = detection.state
             if detection.state is not ScreenState.ENEMY_BASE:
@@ -253,7 +277,7 @@ class TrialFlowController:
         delay_seconds = random.choice(self.bot_config.enemy_base_settle_seconds_options)
         if delay_seconds > 0:
             logging.info("Waiting %.1f seconds for the enemy base to finish loading", delay_seconds)
-            time.sleep(delay_seconds)
+            self._wait_with_checkpoints(delay_seconds, "WAIT_ENEMY_BASE_LOAD")
 
         detection = self._capture_and_detect()
         if detection.state is not ScreenState.ENEMY_BASE:
@@ -292,6 +316,7 @@ class TrialFlowController:
             return
 
         self._assert_game_ready()
+        self.control.checkpoint(label.upper().replace(" ", "_"))
         self.adb_controller.tap(*tap_point)
         logging.info("%s tapped once at (%s, %s)", label, *tap_point)
 
@@ -300,21 +325,29 @@ class TrialFlowController:
         self.adb_controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
         logging.info("Screenshot captured")
         logging.info("Screenshot saved to %s", CURRENT_SCREENSHOT_PATH.as_posix())
-        return detect_screen(
+        detection = detect_screen(
             CURRENT_SCREENSHOT_PATH,
             threshold=self.screen_threshold,
             debug_directory=DEBUG_DIRECTORY,
         )
+        self.control.report(
+            gameScreen=detection.state.value,
+            screenConfidence=detection.confidence,
+            screenDetails={"template": detection.matched_template_name, "bestCandidateConfidence": detection.best_candidate_confidence},
+            screenshotPath=CURRENT_SCREENSHOT_PATH.as_posix(),
+        )
+        return detection
 
     def _assert_game_ready(self) -> None:
+        self.control.checkpoint()
         foreground_app = self.adb_controller.get_foreground_app()
         if foreground_app != self.package_name:
             raise TrialFlowControllerError(
                 f"Clash of Clans left the foreground. Current foreground app: {foreground_app or 'unknown'}"
             )
 
-    @staticmethod
-    def _log_resource_result(result: ResourceReadResult) -> None:
+    def _log_resource_result(self, result: ResourceReadResult) -> None:
+        self.control.report(gold=result.gold.value, elixir=result.elixir.value, darkElixir=result.dark_elixir.value)
         for name, reading in (
             ("Gold", result.gold),
             ("Elixir", result.elixir),
@@ -325,8 +358,8 @@ class TrialFlowController:
             else:
                 logging.info("%s parsed value: %s", name, reading.value)
 
-    @staticmethod
-    def _log_decision(result: DecisionResult) -> None:
+    def _log_decision(self, result: DecisionResult) -> None:
+        self.control.report(decision=result.decision.value, decisionReasons=list(result.reasons))
         for reason in result.reasons:
             logging.info("Reason: %s", reason)
         logging.info("Decision: %s", result.decision.value)
@@ -337,3 +370,9 @@ class TrialFlowController:
         output = DEBUG_DIRECTORY / "full_flow_failure_latest.png"
         output.write_bytes(CURRENT_SCREENSHOT_PATH.read_bytes())
         return output
+
+    def _wait_with_checkpoints(self, delay_seconds: float, phase: str) -> None:
+        deadline = time.monotonic() + delay_seconds
+        while time.monotonic() < deadline:
+            self.control.checkpoint(phase)
+            time.sleep(min(0.1, deadline - time.monotonic()))

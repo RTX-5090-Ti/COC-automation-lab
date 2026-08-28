@@ -1,3 +1,6 @@
-# External tools used across milestones:
-# - OpenCV is already used for template matching.
-# - Tesseract OCR must be installed separately for resource reading.
+fastapi
+uvicorn[standard]
+opencv-python
+numpy
+Pillow
+pytesseract
