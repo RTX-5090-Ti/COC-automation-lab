@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
 from api.schemas import ActionResponse, BotConfigUpdate
-from decision_engine import CONFIG_PATH, DecisionEngineError, load_bot_config, update_bot_config
+from decision_engine import (
+    CONFIG_PATH,
+    DecisionEngineError,
+    load_bot_config,
+    serialize_bot_config,
+    update_bot_config,
+)
 from runtime.bot_runtime import BotRuntime
 from runtime.runtime_state import RuntimeState
 
@@ -33,10 +38,10 @@ def create_router(runtime: BotRuntime, *, config_path: Path = CONFIG_PATH) -> AP
     @router.get("/config")
     def get_config() -> dict:
         try:
-            load_bot_config(config_path)
+            config = load_bot_config(config_path)
         except DecisionEngineError as error:
             raise HTTPException(status_code=400, detail=f"Invalid configuration: {error}") from error
-        return json.loads(config_path.read_text(encoding="utf-8"))
+        return serialize_bot_config(config)
 
     @router.put("/config")
     def put_config(update: BotConfigUpdate) -> dict:
@@ -51,10 +56,10 @@ def create_router(runtime: BotRuntime, *, config_path: Path = CONFIG_PATH) -> AP
         if not updates:
             raise HTTPException(status_code=400, detail="At least one configuration value is required.")
         try:
-            update_bot_config(updates, config_path)
+            config = update_bot_config(updates, config_path)
         except DecisionEngineError as error:
             raise HTTPException(status_code=400, detail=str(error)) from error
-        return json.loads(config_path.read_text(encoding="utf-8"))
+        return serialize_bot_config(config)
 
     @router.post("/session/start", response_model=ActionResponse)
     def start() -> ActionResponse:

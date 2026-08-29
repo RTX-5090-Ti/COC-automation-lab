@@ -9,12 +9,13 @@ from pathlib import Path
 
 import cv2
 
+from project_paths import DEBUG_DIRECTORY
 from screen_detector import BoundingBox
 
 
 DEFAULT_TESSERACT_PATH = Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe")
-OCR_DEBUG_DIRECTORY = Path("screenshots/debug/ocr")
-RESOURCE_ROIS_DEBUG_PATH = Path("screenshots/debug/resource_rois.png")
+OCR_DEBUG_DIRECTORY = DEBUG_DIRECTORY / "ocr"
+RESOURCE_ROIS_DEBUG_PATH = DEBUG_DIRECTORY / "resource_rois.png"
 
 
 class ResourceReaderError(Exception):

@@ -135,15 +135,18 @@ class BotRuntime:
 
     def close(self) -> None:
         with self._lock:
-            if self._log_handler is not None:
-                logging.getLogger().removeHandler(self._log_handler)
-                self._log_handler = None
+            self._detach_log_handler_locked()
 
     def _ensure_log_handler_locked(self) -> None:
         if self._log_handler is None:
             self._log_handler = _RecentLogHandler(self._logs, self._lock)
             self._log_handler.setFormatter(logging.Formatter("[%(levelname)s] %(message)s"))
             logging.getLogger().addHandler(self._log_handler)
+
+    def _detach_log_handler_locked(self) -> None:
+        if self._log_handler is not None:
+            logging.getLogger().removeHandler(self._log_handler)
+            self._log_handler = None
 
     def _update_locked(self, **values: Any) -> None:
         self._telemetry.update(values)
@@ -160,16 +163,19 @@ class BotRuntime:
             with self._lock:
                 self._state = RuntimeState.STOPPED
                 self._update_locked(phase="STOPPED", terminalResult="completed", terminalMessage="Bot session completed.")
+                self._detach_log_handler_locked()
         except StopRequested:
             with self._lock:
                 self._state = RuntimeState.STOPPED
                 self._update_locked(phase="STOPPED", terminalResult="stopped", terminalMessage="Bot session stopped.")
+                self._detach_log_handler_locked()
             logging.info("Bot session stopped cooperatively")
         except Exception as error:
             logging.exception("Bot session failed: %s", error)
             with self._lock:
                 self._state = RuntimeState.ERROR
                 self._update_locked(phase="ERROR", lastError=str(error), terminalResult="failed", terminalMessage=str(error))
+                self._detach_log_handler_locked()
 
     def _run_default_worker(self, control: RuntimeControl, config: BotConfig) -> None:
         controller = ADBController()

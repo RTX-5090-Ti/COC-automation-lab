@@ -10,6 +10,7 @@ from battle_end_controller import BattleEndController
 from battlefield_fingerprint import build_battlefield_fingerprint, compare_fingerprints
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
 from resource_reader import ResourceReadResult, ResourceReader
+from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
 from strategies.attack_plan import save_attack_plan_debug_image
@@ -17,8 +18,6 @@ from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningEr
 from tap_utils import TapPointError, select_random_point_in_box
 
 
-CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
-DEBUG_DIRECTORY = Path("screenshots/debug")
 STATE_TRANSITION_TIMEOUT_SECONDS = 15.0
 GOBLINS_PER_TEST_POINT = 2
 POST_DEPLOYMENT_WAIT_SECONDS = 5.0

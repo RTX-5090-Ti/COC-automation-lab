@@ -6,6 +6,7 @@ from pathlib import Path
 
 import cv2
 
+from project_paths import DEBUG_DIRECTORY, asset_path
 
 class ScreenDetectionError(Exception):
     """Raised when screen detection inputs or outputs are invalid."""
@@ -75,24 +76,24 @@ class ScreenDetectionResult:
 REGISTERED_TEMPLATES: tuple[ScreenTemplate, ...] = (
     ScreenTemplate(
         state=ScreenState.HOME,
-        template_path=Path("templates/home/attack_button.png"),
+        template_path=asset_path("templates", "home", "attack_button.png"),
         template_name="attack_button.png",
     ),
     ScreenTemplate(
         state=ScreenState.ATTACK_MENU,
-        template_path=Path("templates/attack_menu/find_match_button.png"),
+        template_path=asset_path("templates", "attack_menu", "find_match_button.png"),
         template_name="find_match_button.png",
     ),
     ScreenTemplate(
         state=ScreenState.ARMY_CONFIRMATION,
-        template_path=Path("templates/army_confirmation/army_panel_anchor.png"),
+        template_path=asset_path("templates", "army_confirmation", "army_panel_anchor.png"),
         template_name="army_panel_anchor.png",
-        action_template_path=Path("templates/army_confirmation/confirm_attack_button.png"),
+        action_template_path=asset_path("templates", "army_confirmation", "confirm_attack_button.png"),
         action_template_name="confirm_attack_button.png",
     ),
     ScreenTemplate(
         state=ScreenState.ENEMY_BASE,
-        template_path=Path("templates/enemy_base/next_button.png"),
+        template_path=asset_path("templates", "enemy_base", "next_button.png"),
         template_name="next_button.png",
     ),
 )
@@ -102,7 +103,7 @@ def detect_screen(
     screenshot_path: str | Path,
     *,
     threshold: float = 0.85,
-    debug_directory: str | Path = Path("screenshots/debug"),
+    debug_directory: str | Path = DEBUG_DIRECTORY,
 ) -> ScreenDetectionResult:
     screenshot_file = Path(screenshot_path)
     screenshot = _load_image(screenshot_file, "screenshot")

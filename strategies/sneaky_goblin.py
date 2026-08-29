@@ -8,10 +8,11 @@ import numpy as np
 
 from decision_engine import BotConfig
 from screen_detector import BoundingBox
+from project_paths import asset_path
 from strategies.attack_plan import ActionType, AttackAction, AttackPlan
 
 
-SNEAKY_GOBLIN_TEMPLATE_PATH = Path("templates/battle/sneaky_goblin_slot.png")
+SNEAKY_GOBLIN_TEMPLATE_PATH = asset_path("templates", "battle", "sneaky_goblin_slot.png")
 
 
 class SneakyGoblinPlanningError(Exception):

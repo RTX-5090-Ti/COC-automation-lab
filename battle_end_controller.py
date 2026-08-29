@@ -7,19 +7,18 @@ from enum import Enum
 from pathlib import Path
 
 from adb_controller import ADBController
+from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY, asset_path
 from screen_detector import TemplateDetectionResult, detect_template
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from tap_utils import TapPointError, select_random_point_in_box
 
 
-CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
-DEBUG_DIRECTORY = Path("screenshots/debug")
-END_BATTLE_BUTTON_TEMPLATE_PATH = Path("templates/battle/end_battle_button.png")
-SURRENDER_BUTTON_TEMPLATE_PATH = Path("templates/battle/surrender_button.png")
-END_BATTLE_CONFIRM_DIALOG_TEMPLATE_PATH = Path("templates/battle/end_battle_confirm_dialog.png")
-END_BATTLE_CONFIRM_OK_TEMPLATE_PATH = Path("templates/battle/end_battle_confirm_ok.png")
-RETURN_HOME_BUTTON_TEMPLATE_PATH = Path("templates/battle/return_home_button.png")
-HOME_ATTACK_BUTTON_TEMPLATE_PATH = Path("templates/home/attack_button.png")
+END_BATTLE_BUTTON_TEMPLATE_PATH = asset_path("templates", "battle", "end_battle_button.png")
+SURRENDER_BUTTON_TEMPLATE_PATH = asset_path("templates", "battle", "surrender_button.png")
+END_BATTLE_CONFIRM_DIALOG_TEMPLATE_PATH = asset_path("templates", "battle", "end_battle_confirm_dialog.png")
+END_BATTLE_CONFIRM_OK_TEMPLATE_PATH = asset_path("templates", "battle", "end_battle_confirm_ok.png")
+RETURN_HOME_BUTTON_TEMPLATE_PATH = asset_path("templates", "battle", "return_home_button.png")
+HOME_ATTACK_BUTTON_TEMPLATE_PATH = asset_path("templates", "home", "attack_button.png")
 
 
 class BattleEndControllerError(Exception):

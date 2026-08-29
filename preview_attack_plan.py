@@ -7,13 +7,14 @@ import cv2
 
 from adb_controller import ADBController
 from decision_engine import load_bot_config
+from project_paths import DEBUG_DIRECTORY
 from screen_detector import BoundingBox
 from strategies.attack_plan import ActionType, AttackAction, AttackPlan, save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner
 
 
-DEFAULT_SOURCE_PATH = Path("screenshots/debug/enemy_base_preview_source.png")
-DEFAULT_OUTPUT_PATH = Path("screenshots/debug/attack_plan_sneaky_goblin.png")
+DEFAULT_SOURCE_PATH = DEBUG_DIRECTORY / "enemy_base_preview_source.png"
+DEFAULT_OUTPUT_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 
 
 def build_parser() -> argparse.ArgumentParser:

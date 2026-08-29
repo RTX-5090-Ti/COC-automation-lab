@@ -1,5 +1,5 @@
 {
-  "minimumGold": 200000,
+  "minimumGold": 123456,
   "minimumElixir": 200000,
   "minimumDarkElixir": 1000,
   "requireAllResources": true,
@@ -62,5 +62,6 @@
   "goblinsPerPoint": 3,
   "delayBetweenTapsSeconds": 0.1,
   "delayBetweenGroupsSeconds": 0.4,
-  "maximumPlannedActions": 35
+  "maximumPlannedActions": 35,
+  "unexpectedRawField": "must not be exposed"
 }

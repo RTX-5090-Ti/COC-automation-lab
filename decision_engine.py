@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import Enum
 from pathlib import Path
 
+from project_paths import CONFIG_PATH
 from resource_reader import ResourceReadResult
 
-
-CONFIG_PATH = Path("config/bot_config.json")
 
 
 class DecisionEngineError(Exception):
@@ -234,6 +233,23 @@ def update_bot_config(updates: dict, config_path: str | Path = CONFIG_PATH) -> B
     finally:
         if temporary_path.exists():
             temporary_path.unlink()
+
+
+def serialize_bot_config(config: BotConfig) -> dict[str, object]:
+    """Return the normalized public JSON representation of validated config."""
+    return {
+        _snake_to_camel(field.name): _json_config_value(getattr(config, field.name))
+        for field in fields(config)
+    }
+
+
+def _snake_to_camel(value: str) -> str:
+    first, *rest = value.split("_")
+    return first + "".join(part.capitalize() for part in rest)
+
+
+def _json_config_value(value: object) -> object:
+    return list(value) if isinstance(value, tuple) else value
 
 
 def evaluate_resources(resource_result: ResourceReadResult, config: BotConfig) -> DecisionResult:

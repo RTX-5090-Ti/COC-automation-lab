@@ -1,0 +1,36 @@
+{
+  "name": "coc-automation-dashboard",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "backend:bundle": "node scripts/bundle-backend.cjs",
+    "desktop:dev": "npm run build && electron .",
+    "desktop:dist": "npm run build && npm run backend:bundle && electron-builder --win portable --x64"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@vitejs/plugin-react": "^5.0.2",
+    "electron": "^38.2.2",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  },
+  "build": {
+    "appId": "local.coc.automation",
+    "productName": "CoC Field Console",
+    "directories": { "output": "release" },
+    "files": ["dist/**/*", "electron/**/*", "package.json"],
+    "extraResources": [{ "from": "../build/backend-runtime/desktop_backend", "to": "backend-runtime", "filter": ["**/*"] }],
+    "win": { "target": [{ "target": "portable", "arch": ["x64"] }] }
+  }
+}

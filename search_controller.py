@@ -13,6 +13,7 @@ from battlefield_fingerprint import (
     compare_fingerprints,
 )
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
+from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY
 from resource_reader import ResourceReadResult, ResourceReader
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
@@ -21,8 +22,6 @@ from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningEr
 from tap_utils import TapPointError, select_random_point_in_box
 
 
-CURRENT_SCREENSHOT_PATH = Path("screenshots/current/current.png")
-DEBUG_DIRECTORY = Path("screenshots/debug")
 DEFAULT_BATTLEFIELD_DIFF_THRESHOLD = 0.05
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 TEST_DEPLOYMENT_GROUPS = 3

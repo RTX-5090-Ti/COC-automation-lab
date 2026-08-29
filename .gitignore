@@ -19,3 +19,16 @@ screenshots/debug/*
 
 # Environment variables
 .env
+
+# React/Vite frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/release/
+frontend/.npm-cache/
+
+# Desktop backend build output
+build/
+dist/
+*.spec
+frontend/backend-runtime/
