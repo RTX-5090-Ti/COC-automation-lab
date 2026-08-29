@@ -13,11 +13,18 @@ from decision_engine import (
     update_bot_config,
 )
 from runtime.bot_runtime import BotRuntime
+from runtime.preflight_service import PreflightService
 from runtime.runtime_state import RuntimeState
 
 
-def create_router(runtime: BotRuntime, *, config_path: Path = CONFIG_PATH) -> APIRouter:
+def create_router(
+    runtime: BotRuntime,
+    *,
+    config_path: Path = CONFIG_PATH,
+    preflight_service: PreflightService | None = None,
+) -> APIRouter:
     router = APIRouter(prefix="/api")
+    service = preflight_service or PreflightService(config_path=config_path, log=runtime.log)
 
     @router.get("/health")
     def health() -> dict[str, str]:
@@ -34,6 +41,16 @@ def create_router(runtime: BotRuntime, *, config_path: Path = CONFIG_PATH) -> AP
     @router.get("/logs")
     def logs(limit: int = Query(default=100, ge=1, le=500)) -> dict:
         return {"entries": runtime.logs(limit)}
+
+    @router.get("/preflight")
+    def get_preflight() -> dict:
+        return {"report": service.latest()}
+
+    @router.post("/preflight/run")
+    def run_preflight() -> dict:
+        report = service.run()
+        runtime.set_preflight_report(report)
+        return report
 
     @router.get("/config")
     def get_config() -> dict:
@@ -63,6 +80,10 @@ def create_router(runtime: BotRuntime, *, config_path: Path = CONFIG_PATH) -> AP
 
     @router.post("/session/start", response_model=ActionResponse)
     def start() -> ActionResponse:
+        report = service.latest()
+        if report and report["overallStatus"] == "blocked":
+            failures = [check["title"] for check in report["checks"] if check["status"] == "fail"]
+            raise HTTPException(status_code=409, detail="Preflight is blocked: " + ", ".join(failures))
         success, message = runtime.start()
         if not success:
             raise HTTPException(status_code=409, detail=message)

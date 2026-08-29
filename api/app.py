@@ -10,9 +10,15 @@ from api.routes import create_router
 from decision_engine import CONFIG_PATH
 from project_paths import dashboard_dist_path
 from runtime.bot_runtime import BotRuntime
+from runtime.preflight_service import PreflightService
 
 
-def create_app(*, config_path: str | Path = CONFIG_PATH, runtime: BotRuntime | None = None) -> FastAPI:
+def create_app(
+    *,
+    config_path: str | Path = CONFIG_PATH,
+    runtime: BotRuntime | None = None,
+    preflight_service: PreflightService | None = None,
+) -> FastAPI:
     application = FastAPI(title="CoC Automation Local API", version="0.1.0")
     application.add_middleware(
         CORSMiddleware,
@@ -22,7 +28,17 @@ def create_app(*, config_path: str | Path = CONFIG_PATH, runtime: BotRuntime | N
         allow_headers=["Content-Type"],
     )
     application.state.runtime = runtime or BotRuntime(config_path=config_path)
-    application.include_router(create_router(application.state.runtime, config_path=Path(config_path)))
+    application.state.preflight_service = preflight_service or PreflightService(
+        config_path=config_path,
+        log=application.state.runtime.log,
+    )
+    application.include_router(
+        create_router(
+            application.state.runtime,
+            config_path=Path(config_path),
+            preflight_service=application.state.preflight_service,
+        )
+    )
     dashboard_directory = dashboard_dist_path()
     if dashboard_directory.is_dir():
         # Mount last so API and FastAPI's built-in docs keep their existing routes.

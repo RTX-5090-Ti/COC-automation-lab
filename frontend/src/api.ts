@@ -46,6 +46,12 @@ export interface LogsResponse {
   entries: LogEntry[];
 }
 
+export type PreflightStatus = "ready" | "warning" | "blocked";
+export type PreflightCheckStatus = "pass" | "warning" | "fail";
+export interface PreflightCheck { id: string; status: PreflightCheckStatus; title: string; detail: string; remediation: string; metadata: JsonRecord; }
+export interface PreflightReport { overallStatus: PreflightStatus; checkedAt: string; checks: PreflightCheck[]; }
+export interface PreflightResponse { report: PreflightReport | null; }
+
 export type ConfigResponse = Record<string, string | number | boolean | string[]>;
 
 export interface ConfigPatch {
@@ -98,6 +104,8 @@ export const api = {
   status: () => request<Status>("/status"),
   telemetry: () => request<Telemetry>("/telemetry"),
   logs: () => request<LogsResponse>("/logs?limit=100"),
+  preflight: () => request<PreflightResponse>("/preflight"),
+  runPreflight: () => request<PreflightReport>("/preflight/run", { method: "POST" }),
   config: () => request<ConfigResponse>("/config"),
   updateConfig: (patch: ConfigPatch) => request<ConfigResponse>("/config", { method: "PUT", body: JSON.stringify(patch) }),
   start: () => request<JsonRecord>("/session/start", { method: "POST" }),

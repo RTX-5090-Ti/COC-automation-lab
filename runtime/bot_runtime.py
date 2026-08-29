@@ -53,6 +53,7 @@ class BotRuntime:
         self._stop_event = threading.Event()
         self._pause_event = threading.Event()
         self._telemetry = self._empty_telemetry()
+        self._preflight_report: dict[str, Any] | None = None
         self._log_handler: _RecentLogHandler | None = None
 
     def _empty_telemetry(self) -> dict[str, Any]:
@@ -131,7 +132,17 @@ class BotRuntime:
             self._update_locked(**values)
 
     def log(self, level: int, message: str) -> None:
+        with self._lock:
+            self._logs.append({"timestamp": datetime.now(timezone.utc).isoformat(), "level": logging.getLevelName(level), "message": message})
         logging.log(level, message)
+
+    def set_preflight_report(self, report: dict[str, Any]) -> None:
+        with self._lock:
+            self._preflight_report = report
+
+    def preflight_report(self) -> dict[str, Any] | None:
+        with self._lock:
+            return None if self._preflight_report is None else {**self._preflight_report, "checks": [{**check, "metadata": dict(check["metadata"])} for check in self._preflight_report["checks"]]}
 
     def close(self) -> None:
         with self._lock:

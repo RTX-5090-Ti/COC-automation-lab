@@ -171,3 +171,17 @@ $env:COC_API_PORT = "8011"
 ```
 
 The package is self-contained for Python dependencies, but it intentionally does not bundle LDPlayer, ADB, Clash of Clans, or Tesseract.
+
+## Preflight Diagnostics
+
+Use the **Run checks** button in the desktop dashboard before automation when you want to verify the local setup. Preflight is read-only: it never starts a session, launches Clash of Clans, sends taps, or deploys troops. It may take one ADB screenshot and stores it only at `%APPDATA%\CoC Field Console\screenshots\debug\preflight_latest.png`.
+
+Preflight checks writable app data, the existing config file, bundled templates/dashboard assets, ADB and connected LDPlayer device, Clash of Clans installation/foreground state, external Tesseract, and the required `1920x1080` screenshot resolution.
+
+- **Ready**: core checks passed.
+- **Warning**: the core runtime is usable, but Clash of Clans is not running or not foreground.
+- **Blocked**: repair a required item such as config, assets, ADB/device, Clash of Clans package, Tesseract, screenshot capture, or resolution before starting a session.
+
+Start Session remains available before the first Preflight run for compatibility. Once a completed report is **Blocked**, the dashboard disables Start Session and lists the failed checks. Fix the item, then run checks again. Preflight never resets a missing or invalid user config.
+
+For ADB failures, start LDPlayer14 and confirm that its emulator is online; set `ADB_PATH` if it is installed outside the default locations. For Tesseract failures, install the native Tesseract executable and add it to `PATH` or set `TESSERACT_PATH`. Detailed bundled backend output remains available in `%APPDATA%\CoC Field Console\desktop-backend.log`.

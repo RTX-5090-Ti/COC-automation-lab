@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, formatValue, type ConfigPatch, type ConfigResponse, type LogEntry, type Status, type Telemetry } from "./api";
+import { api, ApiError, formatValue, type ConfigPatch, type ConfigResponse, type LogEntry, type PreflightCheckStatus, type PreflightReport, type Status, type Telemetry } from "./api";
 
 const EDITABLE_FIELDS: Array<{ key: keyof ConfigPatch; label: string; type: "number" | "boolean" | "select"; hint: string }> = [
   { key: "minimumGold", label: "Minimum Gold", type: "number", hint: "Required Gold before ATTACK." },
@@ -28,6 +28,12 @@ function statusTone(state: string): string {
   return "quiet";
 }
 
+function preflightTone(status: PreflightCheckStatus | "ready" | "blocked"): string {
+  if (status === "ready" || status === "pass") return "good";
+  if (status === "warning") return "warn";
+  return "bad";
+}
+
 function valueForField(config: ConfigResponse, key: keyof ConfigPatch): string | boolean {
   const value = config[key];
   return typeof value === "boolean" ? value : String(value ?? "");
@@ -47,6 +53,8 @@ export function App() {
   const [status, setStatus] = useState<Status | null>(null);
   const [telemetry, setTelemetry] = useState<Telemetry | null>(null);
   const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [preflight, setPreflight] = useState<PreflightReport | null>(null);
+  const [preflightRunning, setPreflightRunning] = useState(false);
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [draft, setDraft] = useState<Record<string, string | boolean>>({});
   const [connection, setConnection] = useState<"retrying" | "connected" | "unavailable">("retrying");
@@ -65,10 +73,11 @@ export function App() {
     if (polling.current) return;
     polling.current = true;
     try {
-      const [nextStatus, nextTelemetry, nextLogs] = await Promise.all([api.status(), api.telemetry(), api.logs()]);
+      const [nextStatus, nextTelemetry, nextLogs, nextPreflight] = await Promise.all([api.status(), api.telemetry(), api.logs(), api.preflight()]);
       setStatus(nextStatus);
       setTelemetry(nextTelemetry);
       setLogs(nextLogs.entries);
+      setPreflight(nextPreflight.report);
       setConnection("connected");
       setError("");
     } catch (requestError) {
@@ -95,6 +104,21 @@ export function App() {
       await refresh();
     } catch (requestError) {
       setError(requestError instanceof ApiError ? requestError.message : "Session action failed.");
+    }
+  }
+
+  async function runPreflight() {
+    setPreflightRunning(true);
+    try {
+      const report = await api.runPreflight();
+      setPreflight(report);
+      setNotice(`Preflight completed: ${report.overallStatus}.`);
+      setError("");
+      await refresh();
+    } catch (requestError) {
+      setError(requestError instanceof ApiError ? requestError.message : "Preflight failed to run.");
+    } finally {
+      setPreflightRunning(false);
     }
   }
 
@@ -127,6 +151,8 @@ export function App() {
   const runtimeState = status?.runtimeState ?? "IDLE";
   const isActive = ACTIVE_STATES.has(runtimeState);
   const isLiveMode = config?.dryRun === false || telemetry?.dryRun === false;
+  const preflightBlocked = preflight?.overallStatus === "blocked";
+  const failedPreflightChecks = preflight?.checks.filter((check) => check.status === "fail").map((check) => check.title).join(", ") ?? "";
   const externallyOwnedBackend = new URLSearchParams(window.location.search).get("backendOwnership") === "external";
   const advancedConfig = config ? Object.entries(config).filter(([key]) => !EDITABLE_FIELDS.some((field) => field.key === key)) : [];
   const shownLogs = logFilter === "ALL" ? logs : logs.filter((entry) => entry.level === logFilter);
@@ -153,12 +179,13 @@ export function App() {
             <div><dt>Last error</dt><dd>{telemetry?.lastError ?? "None"}</dd></div>
           </dl>
           <div className="actions">
-            <button className="primary" disabled={isActive} onClick={() => void sessionAction("start")}>Start session</button>
+            <button className="primary" disabled={isActive || preflightBlocked} onClick={() => void sessionAction("start")}>Start session</button>
             <button disabled={runtimeState !== "RUNNING"} onClick={() => void sessionAction("pause")}>Pause</button>
             <button disabled={runtimeState !== "PAUSED"} onClick={() => void sessionAction("resume")}>Resume</button>
             <button className="danger" disabled={!isActive} onClick={() => void sessionAction("stop")}>Stop safely</button>
           </div>
           <p className="checkpoint-note">Pause and Stop apply at the next safe controller checkpoint. ADB commands already sent cannot be interrupted.</p>
+          {preflightBlocked && <p className="checkpoint-note"><strong>Start blocked:</strong> {failedPreflightChecks}. Run Preflight again after fixing these items.</p>}
         </article>
 
         <article className="panel telemetry-panel">
@@ -168,6 +195,12 @@ export function App() {
           <p className="detail-line">{formatValue(telemetry?.screenDetails)}</p>
           <p className="detail-line">Reasons: {telemetry?.decisionReasons?.join(" | ") || "Awaiting decision"}</p>
         </article>
+      </section>
+
+      <section className="panel preflight-panel" aria-label="Preflight diagnostics">
+        <div className="panel-heading"><div><p className="eyebrow">PREFLIGHT</p><h2>{preflight ? "Environment diagnostics" : "Not run yet"}</h2></div><div className="actions"><span className={`badge ${preflight ? preflightTone(preflight.overallStatus) : "quiet"}`}>{preflight?.overallStatus ?? "not run"}</span><button className="primary" disabled={preflightRunning || isActive} onClick={() => void runPreflight()}>{preflightRunning ? "Running checks..." : preflight ? "Run again" : "Run checks"}</button></div></div>
+        <p className="config-note">Preflight performs read-only ADB checks and may save one diagnostic screenshot. It never starts a bot session or sends gameplay taps.</p>
+        {preflight && <><p className="timestamp">Checked {formatTime(preflight.checkedAt)}</p><div className="preflight-checks">{preflight.checks.map((check) => <article className={`preflight-check ${check.status}`} key={check.id}><div><span className={`badge ${preflightTone(check.status)}`}>{check.status}</span><strong>{check.title}</strong></div><p>{check.detail}</p>{check.remediation && <small>{check.remediation}</small>}{Object.keys(check.metadata).length > 0 && <code>{formatValue(check.metadata)}</code>}</article>)}</div></>}
       </section>
 
       <section className="grid secondary-grid">
