@@ -40,6 +40,7 @@ class BotConfig:
     enemy_base_settle_seconds_options: tuple[float, ...]
     screen_transition_poll_seconds_options: tuple[float, ...]
     max_runtime_seconds: float
+    battles_per_session: int
     strategy: str
     sneaky_goblin_mode: str
     sneaky_goblin_slot_threshold: float
@@ -68,12 +69,18 @@ class BotConfig:
     deployment_points_bc: int
     deployment_points_cd: int
     deployment_edge_inset_pixels: int
+    deployment_edge_inset_random_ratio: float
+    deployment_edge_inset_random_pixels: tuple[int, ...]
     debug_boundary_da_end_ratio: float
     debug_boundary_bh_length_ratio: float
     debug_boundary_bk_length_ratio: float
     goblins_per_point: int
+    troop_selection_delay_seconds_options: tuple[float, ...]
     delay_between_taps_seconds: float
+    delay_between_taps_seconds_options: tuple[float, ...]
     delay_between_groups_seconds: float
+    delay_between_groups_seconds_options: tuple[float, ...]
+    post_deployment_wait_seconds_options: tuple[float, ...]
     maximum_planned_actions: int
 
 
@@ -108,7 +115,8 @@ DEFAULT_CONFIG = {
     "newBaseTimeoutSeconds": 20.0,
     "enemyBaseSettleSecondsOptions": [1.0, 1.2, 1.5, 1.7, 1.8, 1.9, 2.0, 2.2, 2.5],
     "screenTransitionPollSecondsOptions": [0.8, 1.0, 1.2, 0.5],
-    "maxRuntimeSeconds": 180.0,
+    "maxRuntimeSeconds": 900.0,
+    "battlesPerSession": 5,
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
     "sneakyGoblinSlotThreshold": 0.85,
@@ -137,12 +145,18 @@ DEFAULT_CONFIG = {
     "deploymentPointsBC": 6,
     "deploymentPointsCD": 6,
     "deploymentEdgeInsetPixels": 28,
+    "deploymentEdgeInsetRandomRatio": 0.3,
+    "deploymentEdgeInsetRandomPixels": [10, 15, 17, 20, 21, 22, 23, 24, 25, 26, 27, 28],
     "debugBoundaryDaEndRatio": 1.0,
     "debugBoundaryBhLengthRatio": 1.0,
     "debugBoundaryBkLengthRatio": 1.0,
     "goblinsPerPoint": 3,
+    "troopSelectionDelaySecondsOptions": [0.15, 0.2, 0.25, 0.3],
     "delayBetweenTapsSeconds": 0.1,
+    "delayBetweenTapsSecondsOptions": [0.2, 0.3, 0.4, 0.5],
     "delayBetweenGroupsSeconds": 0.4,
+    "delayBetweenGroupsSecondsOptions": [0.2, 0.3, 0.4, 0.5, 0.6],
+    "postDeploymentWaitSecondsOptions": [4.5, 4.9, 5.0, 5.2, 5.5, 5.9, 6.0, 6.3, 6.5],
     "maximumPlannedActions": 20,
 }
 
@@ -177,6 +191,11 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
             raw_config, "screenTransitionPollSecondsOptions"
         ),
         max_runtime_seconds=_read_positive_float(raw_config, "maxRuntimeSeconds"),
+        battles_per_session=(
+            _read_int_choice(raw_config, "battlesPerSession", choices=(1, 5, 10))
+            if "battlesPerSession" in raw_config
+            else 5
+        ),
         strategy=_read_non_empty_string(raw_config, "strategy"),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
         sneaky_goblin_slot_threshold=_read_ratio(raw_config, "sneakyGoblinSlotThreshold"),
@@ -207,12 +226,42 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         deployment_edge_inset_pixels=_read_int_in_range(
             raw_config, "deploymentEdgeInsetPixels", minimum=1, maximum=200
         ),
+        deployment_edge_inset_random_ratio=(
+            _read_ratio(raw_config, "deploymentEdgeInsetRandomRatio")
+            if "deploymentEdgeInsetRandomRatio" in raw_config
+            else 0.0
+        ),
+        deployment_edge_inset_random_pixels=(
+            _read_int_list_in_range(raw_config, "deploymentEdgeInsetRandomPixels", minimum=1, maximum=200)
+            if "deploymentEdgeInsetRandomPixels" in raw_config
+            else (raw_config["deploymentEdgeInsetPixels"],)
+        ),
         debug_boundary_da_end_ratio=_read_ratio(raw_config, "debugBoundaryDaEndRatio"),
         debug_boundary_bh_length_ratio=_read_ratio(raw_config, "debugBoundaryBhLengthRatio"),
         debug_boundary_bk_length_ratio=_read_ratio(raw_config, "debugBoundaryBkLengthRatio"),
         goblins_per_point=_read_int_in_range(raw_config, "goblinsPerPoint", minimum=1, maximum=10),
+        troop_selection_delay_seconds_options=(
+            _read_non_negative_float_list(raw_config, "troopSelectionDelaySecondsOptions")
+            if "troopSelectionDelaySecondsOptions" in raw_config
+            else (0.2,)
+        ),
         delay_between_taps_seconds=_read_non_negative_float(raw_config, "delayBetweenTapsSeconds"),
+        delay_between_taps_seconds_options=(
+            _read_non_negative_float_list(raw_config, "delayBetweenTapsSecondsOptions")
+            if "delayBetweenTapsSecondsOptions" in raw_config
+            else (_read_non_negative_float(raw_config, "delayBetweenTapsSeconds"),)
+        ),
         delay_between_groups_seconds=_read_non_negative_float(raw_config, "delayBetweenGroupsSeconds"),
+        delay_between_groups_seconds_options=(
+            _read_non_negative_float_list(raw_config, "delayBetweenGroupsSecondsOptions")
+            if "delayBetweenGroupsSecondsOptions" in raw_config
+            else (_read_non_negative_float(raw_config, "delayBetweenGroupsSeconds"),)
+        ),
+        post_deployment_wait_seconds_options=(
+            _read_non_negative_float_list(raw_config, "postDeploymentWaitSecondsOptions")
+            if "postDeploymentWaitSecondsOptions" in raw_config
+            else tuple(DEFAULT_CONFIG["postDeploymentWaitSecondsOptions"])
+        ),
         maximum_planned_actions=_read_int_in_range(raw_config, "maximumPlannedActions", minimum=1, maximum=50),
     )
     _validate_limit_relationships(config)
@@ -366,6 +415,14 @@ def _read_int_in_range(raw_config: dict, key: str, *, minimum: int, maximum: int
     return value
 
 
+def _read_int_choice(raw_config: dict, key: str, *, choices: tuple[int, ...]) -> int:
+    value = raw_config.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value not in choices:
+        allowed_values = ", ".join(str(choice) for choice in choices)
+        raise DecisionEngineError(f"Configuration value '{key}' must be one of: {allowed_values}.")
+    return value
+
+
 def _read_positive_float(raw_config: dict, key: str) -> float:
     value = raw_config.get(key)
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
@@ -387,6 +444,17 @@ def _read_non_negative_float_list(raw_config: dict, key: str) -> tuple[float, ..
     if any(isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0 for value in values):
         raise DecisionEngineError(f"Configuration value '{key}' must contain only non-negative numbers.")
     return tuple(float(value) for value in values)
+
+
+def _read_int_list_in_range(raw_config: dict, key: str, *, minimum: int, maximum: int) -> tuple[int, ...]:
+    values = raw_config.get(key)
+    if not isinstance(values, list) or not values:
+        raise DecisionEngineError(f"Configuration value '{key}' must be a non-empty list of integers.")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < minimum or value > maximum for value in values):
+        raise DecisionEngineError(
+            f"Configuration value '{key}' must contain integers between {minimum} and {maximum}."
+        )
+    return tuple(values)
 
 
 def _read_ratio(raw_config: dict, key: str) -> float:

@@ -105,6 +105,13 @@ def test_telemetry_config_read_and_update(config_path) -> None:
     assert updated.status_code == 200
     assert updated.json()["minimumGold"] == 123456
     assert updated.json()["dryRun"] is False
+    session_length = request(app, "PUT", "/api/config", json={"battlesPerSession": 10})
+    assert session_length.status_code == 200
+    assert session_length.json()["battlesPerSession"] == 10
+    single_battle = request(app, "PUT", "/api/config", json={"battlesPerSession": 1})
+    assert single_battle.status_code == 200
+    assert single_battle.json()["battlesPerSession"] == 1
+    assert request(app, "PUT", "/api/config", json={"battlesPerSession": 7}).status_code == 422
     assert request(app, "PUT", "/api/config", json={"maxBasesToCheck": 99}).status_code == 422
     runtime.close()
 

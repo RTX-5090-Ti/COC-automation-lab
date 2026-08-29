@@ -4,7 +4,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, HTTPException, Query
 
-from api.schemas import ActionResponse, BotConfigUpdate
+from api.schemas import ActionResponse, BotConfigUpdate, HistoryListResponse, HistorySessionDetail
 from decision_engine import (
     CONFIG_PATH,
     DecisionEngineError,
@@ -13,6 +13,7 @@ from decision_engine import (
     update_bot_config,
 )
 from runtime.bot_runtime import BotRuntime
+from runtime.history_store import HistoryStore, HistoryStoreError
 from runtime.preflight_service import PreflightService
 from runtime.runtime_state import RuntimeState
 
@@ -22,9 +23,11 @@ def create_router(
     *,
     config_path: Path = CONFIG_PATH,
     preflight_service: PreflightService | None = None,
+    history_store: HistoryStore | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     service = preflight_service or PreflightService(config_path=config_path, log=runtime.log)
+    history = history_store or runtime.history_store
 
     @router.get("/health")
     def health() -> dict[str, str]:
@@ -41,6 +44,23 @@ def create_router(
     @router.get("/logs")
     def logs(limit: int = Query(default=100, ge=1, le=500)) -> dict:
         return {"entries": runtime.logs(limit)}
+
+    @router.get("/history/sessions", response_model=HistoryListResponse)
+    def history_sessions(limit: int = Query(default=25, ge=1, le=100), offset: int = Query(default=0, ge=0)) -> dict:
+        try:
+            return history.list_sessions(limit=limit, offset=offset)
+        except HistoryStoreError as error:
+            raise HTTPException(status_code=503, detail=f"History storage is unavailable: {error}") from error
+
+    @router.get("/history/sessions/{session_id}", response_model=HistorySessionDetail)
+    def history_session(session_id: str) -> dict:
+        try:
+            session = history.get_session(session_id)
+        except HistoryStoreError as error:
+            raise HTTPException(status_code=503, detail=f"History storage is unavailable: {error}") from error
+        if session is None:
+            raise HTTPException(status_code=404, detail="Session history record was not found.")
+        return session
 
     @router.get("/preflight")
     def get_preflight() -> dict:

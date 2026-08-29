@@ -41,6 +41,12 @@ class ADBController:
         self.adb_path = self._resolve_adb_path(adb_path)
         self.device_id = device_id
         self.timeout_seconds = timeout_seconds
+        self.gameplay_input_allowed = True
+        self.suppressed_gameplay_actions: list[str] = []
+
+    def set_gameplay_input_allowed(self, allowed: bool) -> None:
+        """Globally suppress gameplay-changing ADB input for dry-run sessions."""
+        self.gameplay_input_allowed = allowed
 
     @classmethod
     def _resolve_adb_path(cls, adb_path: str | Path | None = None) -> Path:
@@ -179,7 +185,16 @@ class ADBController:
     def tap(self, x: int, y: int) -> subprocess.CompletedProcess[str]:
         if x < 0 or y < 0:
             raise ADBError(f"Tap coordinates must be non-negative. Received: ({x}, {y})")
+        if not self.gameplay_input_allowed:
+            self.suppressed_gameplay_actions.append(f"tap ({x}, {y})")
+            return subprocess.CompletedProcess([], 0, "", "")
         return self.run_command(["shell", "input", "tap", str(x), str(y)])
+
+    def swipe(self, x1: int, y1: int, x2: int, y2: int, duration_ms: int = 300) -> subprocess.CompletedProcess[str]:
+        if not self.gameplay_input_allowed:
+            self.suppressed_gameplay_actions.append(f"swipe ({x1}, {y1}) -> ({x2}, {y2})")
+            return subprocess.CompletedProcess([], 0, "", "")
+        return self.run_command(["shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms)])
 
     def capture_screenshot(self, output_path: str | Path) -> Path:
         output = Path(output_path)
@@ -212,6 +227,10 @@ class ADBController:
         include_device: bool = True,
         check: bool = True,
     ) -> subprocess.CompletedProcess[str]:
+        args = list(args)
+        if len(args) >= 2 and args[0] == "shell" and args[1] == "input" and not self.gameplay_input_allowed:
+            self.suppressed_gameplay_actions.append("shell input " + " ".join(args[2:]))
+            return subprocess.CompletedProcess([], 0, "", "")
         command = self._build_command(args, include_device=include_device)
 
         try:

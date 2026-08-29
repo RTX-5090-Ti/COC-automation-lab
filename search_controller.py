@@ -16,6 +16,7 @@ from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resour
 from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY
 from resource_reader import ResourceReadResult, ResourceReader
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
+from runtime.reliability_guard import ReliabilityGuard
 from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
 from strategies.attack_plan import AttackAction, AttackPlan, save_attack_plan_debug_image
 from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
@@ -26,7 +27,6 @@ DEFAULT_BATTLEFIELD_DIFF_THRESHOLD = 0.05
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 TEST_DEPLOYMENT_GROUPS = 3
 TEST_GOBLINS_PER_GROUP = 2
-TROOP_SELECTION_DELAY_SECONDS = 0.2
 
 
 class SearchControllerError(Exception):
@@ -67,10 +67,15 @@ class SearchController:
         self.screen_threshold = screen_threshold
         self.debug = debug
         self.dry_run = False if live_override else bot_config.dry_run
+        self.adb_controller.set_gameplay_input_allowed(not self.dry_run)
         self.battlefield_diff_threshold = battlefield_diff_threshold
         self.three_point_deployment_test = three_point_deployment_test
         self.deployment_point_test_indices = deployment_point_test_indices
         self.control = control
+        self.reliability_guard = ReliabilityGuard(
+            self.adb_controller, self.package_name, self.screen_threshold,
+            self.bot_config.max_unknown_state_retries, self.control,
+        )
         self.sneaky_goblin_planner = SneakyGoblinPlanner()
 
     def run(self) -> int:
@@ -144,7 +149,7 @@ class SearchController:
                     last_state=ScreenState.ENEMY_BASE,
                 )
 
-            fresh_detection = self._confirm_enemy_base_ready_for_next(start_time, counters)
+            fresh_detection = self.reliability_guard.require_expected_state((ScreenState.ENEMY_BASE,), "NEXT_BASE_GUARD")
             next_x, next_y = self._validate_next_button(fresh_detection)
 
             if self.dry_run:
@@ -456,7 +461,9 @@ class SearchController:
         self._assert_game_ready()
         self.adb_controller.tap(slot_x, slot_y)
         logging.info("Sneaky Goblin slot tapped once at (%s, %s)", slot_x, slot_y)
-        time.sleep(TROOP_SELECTION_DELAY_SECONDS)
+        selection_delay = random.choice(self.bot_config.troop_selection_delay_seconds_options)
+        logging.info("Waiting %.2fs after selecting troops", selection_delay)
+        time.sleep(selection_delay)
 
         for action in actions:
             for tap_index in range(TEST_GOBLINS_PER_GROUP):

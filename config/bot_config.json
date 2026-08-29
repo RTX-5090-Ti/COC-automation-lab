@@ -27,7 +27,8 @@
     1.2,
     0.5
   ],
-  "maxRuntimeSeconds": 180.0,
+  "maxRuntimeSeconds": 900.0,
+  "battlesPerSession": 5,
   "strategy": "sneaky_goblin",
   "sneakyGoblinMode": "perimeter_sweep",
   "sneakyGoblinSlotThreshold": 0.85,
@@ -56,11 +57,17 @@
   "deploymentPointsBC": 9,
   "deploymentPointsCD": 6,
   "deploymentEdgeInsetPixels": 28,
+  "deploymentEdgeInsetRandomRatio": 0.4,
+  "deploymentEdgeInsetRandomPixels": [10, 15, 17, 20, 21, 22, 23, 24, 25, 26, 27, 28],
   "debugBoundaryDaEndRatio": 0.85,
   "debugBoundaryBhLengthRatio": 0.85,
   "debugBoundaryBkLengthRatio": 0.68,
   "goblinsPerPoint": 3,
-  "delayBetweenTapsSeconds": 0.1,
+  "troopSelectionDelaySecondsOptions": [0.15, 0.2, 0.25, 0.3],
+  "delayBetweenTapsSeconds": 0.5,
+  "delayBetweenTapsSecondsOptions": [0.2, 0.3, 0.4, 0.5],
   "delayBetweenGroupsSeconds": 0.4,
+  "delayBetweenGroupsSecondsOptions": [0.2, 0.3, 0.4, 0.5, 0.6],
+  "postDeploymentWaitSecondsOptions": [4.5, 4.9, 5.0, 5.2, 5.5, 5.9, 6.0, 6.3, 6.5],
   "maximumPlannedActions": 35
 }

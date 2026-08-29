@@ -10,6 +10,7 @@ from adb_controller import ADBController
 from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY, asset_path
 from screen_detector import TemplateDetectionResult, detect_template
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
+from runtime.reliability_guard import ReliabilityGuard
 from tap_utils import TapPointError, select_random_point_in_box
 
 
@@ -48,9 +49,13 @@ class BattleEndController:
         self.package_name = package_name
         self.threshold = threshold
         self.dry_run = dry_run
+        self.adb_controller.set_gameplay_input_allowed(not self.dry_run)
         self.return_home_timeout_seconds = return_home_timeout_seconds
         self.screen_transition_poll_seconds_options = screen_transition_poll_seconds_options
         self.control = control
+        self.reliability_guard = ReliabilityGuard(
+            self.adb_controller, self.package_name, self.threshold, 0, self.control,
+        )
 
     def run(self) -> int:
         self.control.checkpoint("BATTLE_EXIT")
@@ -80,7 +85,7 @@ class BattleEndController:
             logging.info("No gameplay action was performed")
             return 0
 
-        self._assert_game_ready()
+        self.reliability_guard.verify_device_and_foreground("END_BATTLE")
         self.control.checkpoint("END_BATTLE")
         self.adb_controller.tap(*tap_point)
         logging.info("%s tapped once", button_label)
@@ -209,7 +214,7 @@ class BattleEndController:
             tap_point = select_random_point_in_box(detection.bounding_box, detection.screenshot_size)
         except TapPointError as error:
             raise BattleEndControllerError(str(error)) from error
-        self._assert_game_ready()
+        self.reliability_guard.verify_device_and_foreground(label.upper().replace(" ", "_"))
         self.control.checkpoint(label.upper().replace(" ", "_"))
         self.adb_controller.tap(*tap_point)
         logging.info("%s confidence: %.2f", label, detection.confidence)

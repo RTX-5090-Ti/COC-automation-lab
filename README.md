@@ -185,3 +185,27 @@ Preflight checks writable app data, the existing config file, bundled templates/
 Start Session remains available before the first Preflight run for compatibility. Once a completed report is **Blocked**, the dashboard disables Start Session and lists the failed checks. Fix the item, then run checks again. Preflight never resets a missing or invalid user config.
 
 For ADB failures, start LDPlayer14 and confirm that its emulator is online; set `ADB_PATH` if it is installed outside the default locations. For Tesseract failures, install the native Tesseract executable and add it to `PATH` or set `TESSERACT_PATH`. Detailed bundled backend output remains available in `%APPDATA%\CoC Field Console\desktop-backend.log`.
+
+## Session History
+
+Completed, stopped, and failed sessions are recorded locally in `%APPDATA%\CoC Field Console\history\session_history.sqlite3`. History never starts a bot session or runs game automation when the app opens or when records are read.
+
+Each record keeps the terminal result, duration, mode, strategy, counters, final OCR/decision telemetry, attack-plan summary, a snapshot of the Preflight report available when the session began, selected device when available, and important lifecycle events. Screenshot and debug artifacts are stored only as text paths; image bytes are never embedded in the database.
+
+The app keeps the newest 200 sessions and at most 100 important events for each session. The dashboard **Session History** section lists the newest records first. Select a row to inspect its final telemetry, Preflight snapshot, paths, errors, and event timeline. History export and deletion are intentionally not included.
+
+## Reliability And Calibration
+
+`dryRun: true` suppresses gameplay-changing ADB input at the ADB layer: taps, swipes, and `shell input` commands are not sent. Read-only device checks, screenshots, detection, OCR, Preflight, telemetry, and history remain available.
+
+Before state-based actions, the runtime captures a fresh screenshot, verifies the selected device and Clash of Clans foreground app, then requires the expected screen. Unknown or unexpected screens never trigger recovery taps: the only recovery is bounded recapture/detection retry, followed by a clean stop with diagnostics.
+
+Common failure codes include `ADB_DISCONNECTED`, `ADB_COMMAND_FAILED`, `GAME_NOT_FOREGROUND`, `UNEXPECTED_SCREEN_STATE`, `UNKNOWN_SCREEN_EXHAUSTED`, `SCREEN_TIMEOUT`, and `SCREENSHOT_FAILED`. Terminal diagnostics include expected/observed states and a screenshot path when capture succeeded. Diagnostic screenshots are written under `%APPDATA%\CoC Field Console\screenshots\debug\`.
+
+Run the read-only calibration utility before a controlled test:
+
+```powershell
+& ".\.venv\Scripts\python.exe" calibrate.py --adb-path "C:\LDPlayer\LDPlayer14\adb.exe" --device-id emulator-5554
+```
+
+It captures one screenshot, prints dimensions and screen-template detection, runs OCR, checks template files, and prints artifact paths. It sends no gameplay input. Recommended flow: run Preflight, run calibration, run dry-run diagnostics, review Session History/artifacts, then perform a controlled live deployment-point test. Full attack-plan execution remains intentionally deferred.

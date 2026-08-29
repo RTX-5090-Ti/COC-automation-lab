@@ -22,12 +22,24 @@ export interface Telemetry {
   nextTaps: number;
   ocrAttempts: number;
   unknownStateRetries: number;
+  battlesPlanned?: number;
+  battlesCompleted?: number;
+  recentSetupHistory?: string[];
+  sessionElapsedSeconds?: number;
+  sessionRemainingSeconds?: number | null;
+  sessionMaxRuntimeSeconds?: number | null;
   attackPlan: JsonRecord | null;
   strategy: string | null;
   dryRun: boolean | null;
   lastError: string | null;
   terminalResult: TerminalResult;
   terminalMessage: string | null;
+  failureCode?: string | null;
+  failureMessage?: string | null;
+  expectedStates?: string[];
+  observedState?: string | null;
+  diagnosticScreenshotPath?: string | null;
+  calibrationArtifactPaths?: string[];
   startedAt: string | null;
   updatedAt: string;
 }
@@ -52,6 +64,20 @@ export interface PreflightCheck { id: string; status: PreflightCheckStatus; titl
 export interface PreflightReport { overallStatus: PreflightStatus; checkedAt: string; checks: PreflightCheck[]; }
 export interface PreflightResponse { report: PreflightReport | null; }
 
+export interface HistorySessionSummary {
+  sessionId: string; startedAt: string; endedAt: string | null; durationSeconds: number | null;
+  runtimeState: string | null; terminalResult: Exclude<TerminalResult, null> | null;
+  terminalMessage: string | null; dryRun: boolean | null; strategy: string | null;
+  basesChecked: number; maxBases: number; nextTaps: number;
+}
+export interface HistoryEvent { timestamp: string; eventType: string; level: string | null; message: string; data: JsonRecord; }
+export interface HistorySessionDetail extends HistorySessionSummary {
+  lastError: string | null; phase: string | null; deviceSerial: string | null;
+  preflight: PreflightReport | null; telemetry: Telemetry | null; attackPlan: JsonRecord | null;
+  artifactPaths: string[]; events: HistoryEvent[];
+}
+export interface HistoryListResponse { items: HistorySessionSummary[]; total: number; limit: number; offset: number; }
+
 export type ConfigResponse = Record<string, string | number | boolean | string[]>;
 
 export interface ConfigPatch {
@@ -61,6 +87,7 @@ export interface ConfigPatch {
   requireAllResources?: boolean;
   maxBasesToCheck?: number;
   maxRuntimeSeconds?: number;
+  battlesPerSession?: 1 | 5 | 10;
   maxOcrAttemptsPerBase?: number;
   strategy?: "sneaky_goblin";
   dryRun?: boolean;
@@ -104,6 +131,8 @@ export const api = {
   status: () => request<Status>("/status"),
   telemetry: () => request<Telemetry>("/telemetry"),
   logs: () => request<LogsResponse>("/logs?limit=100"),
+  history: (limit = 25, offset = 0) => request<HistoryListResponse>(`/history/sessions?limit=${limit}&offset=${offset}`),
+  historySession: (sessionId: string) => request<HistorySessionDetail>(`/history/sessions/${encodeURIComponent(sessionId)}`),
   preflight: () => request<PreflightResponse>("/preflight"),
   runPreflight: () => request<PreflightReport>("/preflight/run", { method: "POST" }),
   config: () => request<ConfigResponse>("/config"),

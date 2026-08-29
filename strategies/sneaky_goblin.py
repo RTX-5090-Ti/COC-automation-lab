@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 from pathlib import Path
+import random
 
 import cv2
 import numpy as np
@@ -200,6 +202,8 @@ class SneakyGoblinPlanner:
             screenshot_height=screenshot_height,
             excluded_regions=excluded_regions,
             inset_pixels=config.deployment_edge_inset_pixels,
+            random_inset_ratio=config.deployment_edge_inset_random_ratio,
+            random_inset_pixels=config.deployment_edge_inset_random_pixels,
             edge_point_counts=(
                 config.deployment_points_da,
                 config.deployment_points_ab,
@@ -251,6 +255,8 @@ class SneakyGoblinPlanner:
         screenshot_height: int,
         excluded_regions: list[BoundingBox],
         inset_pixels: int,
+        random_inset_ratio: float,
+        random_inset_pixels: tuple[int, ...],
         edge_point_counts: tuple[int, int, int, int],
         guide_ratios: tuple[float, float, float],
     ) -> list[tuple[str, int, int]]:
@@ -274,6 +280,9 @@ class SneakyGoblinPlanner:
         center_x = sum(point[0] for point in battlefield_polygon) / len(battlefield_polygon)
         center_y = sum(point[1] for point in battlefield_polygon) / len(battlefield_polygon)
         points: list[tuple[str, int, int]] = []
+        total_point_count = sum(point_count for _, _, _, point_count in edges)
+        random_point_count = min(total_point_count, math.ceil(total_point_count * random_inset_ratio))
+        randomized_point_indices = set(random.sample(range(total_point_count), random_point_count))
         for edge_name, start, end, point_count in edges:
             for point_index in range(1, point_count + 1):
                 fraction = point_index / (point_count + 1)
@@ -282,8 +291,13 @@ class SneakyGoblinPlanner:
                 direction_x = edge_x - center_x
                 direction_y = edge_y - center_y
                 direction_length = max((direction_x**2 + direction_y**2) ** 0.5, 1.0)
-                x = round(edge_x + direction_x / direction_length * inset_pixels)
-                y = round(edge_y + direction_y / direction_length * inset_pixels)
+                point_inset_pixels = (
+                    random.choice(random_inset_pixels)
+                    if len(points) in randomized_point_indices
+                    else inset_pixels
+                )
+                x = round(edge_x + direction_x / direction_length * point_inset_pixels)
+                y = round(edge_y + direction_y / direction_length * point_inset_pixels)
                 points.append((edge_name, x, y))
         return points
 

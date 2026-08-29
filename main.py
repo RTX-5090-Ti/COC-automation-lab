@@ -95,6 +95,48 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="POINTS",
         help="Run one full flow, deploy 2 Goblins at the selected points, wait 5 seconds, then return HOME.",
     )
+    action_group.add_argument(
+        "--full-flow-super-wall-breaker-point-1-test",
+        action="store_true",
+        help="Run one full flow, deploy exactly one Super Wall Breaker at point 1, then return HOME.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-1-test",
+        action="store_true",
+        help="Run setup 1: two clockwise Goblin rounds with one Super Wall Breaker on each edge.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-2-test",
+        action="store_true",
+        help="Run setup 2: complete each edge's Goblin/Super Wall Breaker sequence before the next edge.",
+    )
+    action_group.add_argument("--full-flow-setup-3-test", action="store_true", help="Run setup 3: two counter-clockwise Goblin rounds starting at point 10.")
+    action_group.add_argument(
+        "--full-flow-setup-4-test",
+        action="store_true",
+        help="Run setup 4: two Goblins on AB/DA, then two one-Goblin BC/CD rounds with Super Wall Breakers.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-5-test",
+        action="store_true",
+        help="Run setup 5: one Super Wall Breaker per edge, then two Goblins at random edge points.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-6-test",
+        action="store_true",
+        help="Run setup 6: one Super Wall Breaker per edge and mixed random Goblin counts by edge.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-7-test",
+        action="store_true",
+        help="Run setup 7: mixed random Goblin counts by edge without Super Wall Breakers.",
+    )
+    action_group.add_argument(
+        "--full-flow-setup-8-test",
+        action="store_true",
+        help="Run setup 8: clockwise and counter-clockwise Goblin sweeps separated by Super Wall Breakers.",
+    )
+    action_group.add_argument("--full-flow-random-setup-test", action="store_true", help="Run one full flow and randomly choose Setup 1 through 8 after ATTACK.")
     parser.add_argument(
         "--return-home-timeout-seconds",
         type=float,
@@ -161,6 +203,16 @@ def main() -> int:
             args.full_flow_test
             or args.full_flow_two_point_deployment_test
             or args.full_flow_deployment_points_test
+            or args.full_flow_super_wall_breaker_point_1_test
+            or args.full_flow_setup_1_test
+            or args.full_flow_setup_2_test
+            or args.full_flow_setup_3_test
+            or args.full_flow_setup_4_test
+            or args.full_flow_setup_5_test
+            or args.full_flow_setup_6_test
+            or args.full_flow_setup_7_test
+            or args.full_flow_setup_8_test
+            or args.full_flow_random_setup_test
         ):
             return TrialFlowController(
                 adb_controller=controller,
@@ -172,6 +224,16 @@ def main() -> int:
                 dry_run=False if args.no_dry_run else bot_config.dry_run,
                 two_point_deployment_test=args.full_flow_two_point_deployment_test,
                 deployment_point_test_indices=args.full_flow_deployment_points_test or (),
+                super_wall_breaker_test_point_1=args.full_flow_super_wall_breaker_point_1_test,
+                setup_1_test=args.full_flow_setup_1_test,
+                setup_2_test=args.full_flow_setup_2_test,
+                setup_3_test=args.full_flow_setup_3_test,
+                setup_4_test=args.full_flow_setup_4_test,
+                setup_5_test=args.full_flow_setup_5_test,
+                setup_6_test=args.full_flow_setup_6_test,
+                setup_7_test=args.full_flow_setup_7_test,
+                setup_8_test=args.full_flow_setup_8_test,
+                random_setup_test=args.full_flow_random_setup_test,
             ).run()
 
         resource_reader = ResourceReader()
