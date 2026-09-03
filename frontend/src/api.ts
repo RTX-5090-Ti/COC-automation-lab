@@ -88,6 +88,7 @@ export interface ConfigPatch {
   maxBasesToCheck?: number;
   maxRuntimeSeconds?: number;
   battlesPerSession?: 1 | 5 | 10;
+  farmMode?: "home_village" | "builder_base";
   maxOcrAttemptsPerBase?: number;
   strategy?: "sneaky_goblin";
   dryRun?: boolean;

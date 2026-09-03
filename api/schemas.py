@@ -14,6 +14,7 @@ class BotConfigUpdate(BaseModel):
     max_bases_to_check: int | None = Field(default=None, alias="maxBasesToCheck", ge=1, le=20)
     max_runtime_seconds: float | None = Field(default=None, alias="maxRuntimeSeconds", gt=0, le=3600)
     battles_per_session: Literal[1, 5, 10] | None = Field(default=None, alias="battlesPerSession")
+    farm_mode: Literal["home_village", "builder_base"] | None = Field(default=None, alias="farmMode")
     max_ocr_attempts_per_base: int | None = Field(default=None, alias="maxOcrAttemptsPerBase", ge=1, le=10)
     strategy: str | None = Field(default=None, alias="strategy", pattern="^sneaky_goblin$")
     dry_run: bool | None = Field(default=None, alias="dryRun")

@@ -111,6 +111,10 @@ def test_telemetry_config_read_and_update(config_path) -> None:
     single_battle = request(app, "PUT", "/api/config", json={"battlesPerSession": 1})
     assert single_battle.status_code == 200
     assert single_battle.json()["battlesPerSession"] == 1
+    builder_mode = request(app, "PUT", "/api/config", json={"farmMode": "builder_base"})
+    assert builder_mode.status_code == 200
+    assert builder_mode.json()["farmMode"] == "builder_base"
+    assert request(app, "PUT", "/api/config", json={"farmMode": "invalid"}).status_code == 422
     assert request(app, "PUT", "/api/config", json={"battlesPerSession": 7}).status_code == 422
     assert request(app, "PUT", "/api/config", json={"maxBasesToCheck": 99}).status_code == 422
     runtime.close()

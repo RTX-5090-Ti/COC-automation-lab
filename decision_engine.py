@@ -41,6 +41,7 @@ class BotConfig:
     screen_transition_poll_seconds_options: tuple[float, ...]
     max_runtime_seconds: float
     battles_per_session: int
+    farm_mode: str
     strategy: str
     sneaky_goblin_mode: str
     sneaky_goblin_slot_threshold: float
@@ -117,6 +118,7 @@ DEFAULT_CONFIG = {
     "screenTransitionPollSecondsOptions": [0.8, 1.0, 1.2, 0.5],
     "maxRuntimeSeconds": 900.0,
     "battlesPerSession": 5,
+    "farmMode": "home_village",
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
     "sneakyGoblinSlotThreshold": 0.85,
@@ -155,7 +157,7 @@ DEFAULT_CONFIG = {
     "delayBetweenTapsSeconds": 0.1,
     "delayBetweenTapsSecondsOptions": [0.2, 0.3, 0.4, 0.5],
     "delayBetweenGroupsSeconds": 0.4,
-    "delayBetweenGroupsSecondsOptions": [0.2, 0.3, 0.4, 0.5, 0.6],
+    "delayBetweenGroupsSecondsOptions": [0.15, 0.2, 0.25, 0.3, 0.35, 0.4],
     "postDeploymentWaitSecondsOptions": [4.5, 4.9, 5.0, 5.2, 5.5, 5.9, 6.0, 6.3, 6.5],
     "maximumPlannedActions": 20,
 }
@@ -195,6 +197,11 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
             _read_int_choice(raw_config, "battlesPerSession", choices=(1, 5, 10))
             if "battlesPerSession" in raw_config
             else 5
+        ),
+        farm_mode=(
+            _read_string_choice(raw_config, "farmMode", choices=("home_village", "builder_base"))
+            if "farmMode" in raw_config
+            else "home_village"
         ),
         strategy=_read_non_empty_string(raw_config, "strategy"),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
@@ -419,6 +426,14 @@ def _read_int_choice(raw_config: dict, key: str, *, choices: tuple[int, ...]) ->
     value = raw_config.get(key)
     if isinstance(value, bool) or not isinstance(value, int) or value not in choices:
         allowed_values = ", ".join(str(choice) for choice in choices)
+        raise DecisionEngineError(f"Configuration value '{key}' must be one of: {allowed_values}.")
+    return value
+
+
+def _read_string_choice(raw_config: dict, key: str, *, choices: tuple[str, ...]) -> str:
+    value = raw_config.get(key)
+    if not isinstance(value, str) or value not in choices:
+        allowed_values = ", ".join(choices)
         raise DecisionEngineError(f"Configuration value '{key}' must be one of: {allowed_values}.")
     return value
 

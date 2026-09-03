@@ -277,6 +277,8 @@ class BotRuntime:
             logging.warning("History storage failure while trying to %s: %s", action, error)
 
     def _run_default_worker(self, control: RuntimeControl, config: BotConfig) -> None:
+        if config.farm_mode != "home_village":
+            raise RuntimeError("Builder Base farming is not implemented yet. Select Home Village before starting a session.")
         controller = ADBController()
         controller.check_adb_available()
         device = controller.select_device()

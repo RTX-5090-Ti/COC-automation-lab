@@ -29,6 +29,7 @@
   ],
   "maxRuntimeSeconds": 900.0,
   "battlesPerSession": 5,
+  "farmMode": "home_village",
   "strategy": "sneaky_goblin",
   "sneakyGoblinMode": "perimeter_sweep",
   "sneakyGoblinSlotThreshold": 0.85,
@@ -67,7 +68,7 @@
   "delayBetweenTapsSeconds": 0.5,
   "delayBetweenTapsSecondsOptions": [0.2, 0.3, 0.4, 0.5],
   "delayBetweenGroupsSeconds": 0.4,
-  "delayBetweenGroupsSecondsOptions": [0.2, 0.3, 0.4, 0.5, 0.6],
+  "delayBetweenGroupsSecondsOptions": [0.15, 0.2, 0.25, 0.3, 0.35, 0.4],
   "postDeploymentWaitSecondsOptions": [4.5, 4.9, 5.0, 5.2, 5.5, 5.9, 6.0, 6.3, 6.5],
   "maximumPlannedActions": 35
 }
