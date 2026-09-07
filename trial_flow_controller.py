@@ -28,6 +28,12 @@ ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 SUPER_WALL_BREAKER_TEMPLATE_PATH = asset_path("templates", "battle", "super_wall_breaker_slot.png")
 DRAGON_TEMPLATE_PATH = asset_path("templates", "battle", "dragon_slot.png")
 DRAGON_DA_POINT_INDICES = tuple(range(1, 11))
+DRAGON_EDGE_POINTS = {
+    "DA": DRAGON_DA_POINT_INDICES,
+    "AB": tuple(range(11, 21)),
+    "BC": tuple(range(21, 30)),
+    "CD": tuple(range(30, 36)),
+}
 
 
 class TrialFlowControllerError(Exception):
@@ -50,6 +56,8 @@ class TrialFlowController:
         two_point_deployment_test: bool = False,
         deployment_point_test_indices: tuple[int, ...] = (),
         dragon_da_test: bool = False,
+        dragon_edge_test: str | None = None,
+        random_dragon_setup: bool = False,
         super_wall_breaker_test_point_1: bool = False,
         setup_1_test: bool = False,
         setup_2_test: bool = False,
@@ -74,6 +82,10 @@ class TrialFlowController:
         self.two_point_deployment_test = two_point_deployment_test
         self.deployment_point_test_indices = deployment_point_test_indices
         self.dragon_da_test = dragon_da_test
+        self.random_dragon_setup = random_dragon_setup
+        self.dragon_edge_test = dragon_edge_test or ("DA" if dragon_da_test else None)
+        if self.dragon_edge_test is not None and self.dragon_edge_test not in DRAGON_EDGE_POINTS:
+            raise TrialFlowControllerError("Unknown Dragon deployment edge.")
         self.super_wall_breaker_test_point_1 = super_wall_breaker_test_point_1
         self.setup_1_test = setup_1_test
         self.setup_2_test = setup_2_test
@@ -125,15 +137,15 @@ class TrialFlowController:
         bases_checked = 1
         next_taps = 0
         self.control.report(basesChecked=bases_checked, maxBases=self.bot_config.max_bases_to_check)
-        if self.dragon_da_test:
+        if self.dragon_edge_test:
             # This targeted deployment test verifies Dragon input only; resource OCR is intentionally skipped.
-            logging.info("Dragon D-A test: resource filtering bypassed; using the first verified enemy base")
+            logging.info("Dragon %s test: resource filtering bypassed; using the first verified enemy base", self.dragon_edge_test)
             self.control.report(
                 decision="ATTACK",
-                decisionReasons=["Dragon D-A test bypasses resource filtering"],
+                decisionReasons=[f"Dragon {self.dragon_edge_test} test bypasses resource filtering"],
                 basesChecked=bases_checked,
             )
-            return self._deploy_dragons_on_da_then_end_battle()
+            return self._deploy_dragons_on_edge_then_end_battle(self.dragon_edge_test)
 
         while True:
             self.control.checkpoint("RESOURCE_SEARCH")
@@ -162,6 +174,12 @@ class TrialFlowController:
             enemy_base = self._wait_for_different_enemy_base(old_fingerprint)
             enemy_base = self._wait_for_enemy_base_to_settle()
 
+        if self.random_dragon_setup:
+            edge = random.choice(tuple(DRAGON_EDGE_POINTS))
+            self.selected_setup = f"dragon_{edge.lower()}"
+            self.setup_history.append(self.selected_setup)
+            logging.info("Random Dragon setup selected: %s", self.selected_setup)
+            return self._deploy_dragons_on_edge_then_end_battle(edge)
         if self.deployment_point_test_indices:
             return self._deploy_points_then_end_battle(self.deployment_point_test_indices)
         if self.super_wall_breaker_test_point_1:
@@ -216,14 +234,19 @@ class TrialFlowController:
         ).run()
 
     def _deploy_dragons_on_da_then_end_battle(self) -> int:
-        """Test one Dragon at every existing D-A deployment point only."""
+        return self._deploy_dragons_on_edge_then_end_battle("DA")
+
+    def _deploy_dragons_on_edge_then_end_battle(self, edge: str) -> int:
+        """Visit each edge point once per shuffled pass until the budget is spent."""
+        point_indices = DRAGON_EDGE_POINTS[edge]
+        strategy = f"dragon_{edge.lower()}"
         try:
             planning_result = SneakyGoblinPlanner().plan_attack(
                 screenshot_path=CURRENT_SCREENSHOT_PATH,
                 config=self.bot_config,
                 troop_template_path=DRAGON_TEMPLATE_PATH,
                 troop_label="Dragon",
-                strategy_name="dragon_da_test",
+                strategy_name=strategy,
                 slot_threshold=self.screen_threshold,
             )
         except SneakyGoblinPlanningError as error:
@@ -232,27 +255,45 @@ class TrialFlowController:
         plan = planning_result.attack_plan
         slot = planning_result.troop_slot_result
         actions_by_number = {action.sequence_number: action for action in plan.actions}
-        actions = [actions_by_number[index] for index in DRAGON_DA_POINT_INDICES if index in actions_by_number]
-        if not plan.valid or slot.bounding_box is None or len(actions) != len(DRAGON_DA_POINT_INDICES):
+        actions = [actions_by_number[index] for index in point_indices if index in actions_by_number]
+        if not plan.valid or slot.bounding_box is None or len(actions) != len(point_indices):
             raise TrialFlowControllerError(
-                plan.error_message or "Dragon D-A test requires a detected Dragon slot and all 10 D-A points."
+                plan.error_message or f"Dragon {edge} test requires a detected Dragon slot and all {len(point_indices)} edge points."
             )
+
+        dragon_count = self.bot_config.dragon_count
+        if not 10 <= dragon_count <= 17:
+            raise TrialFlowControllerError("Dragon Count must be between 10 and 17.")
+        passes = []
+        remaining = dragon_count
+        while remaining:
+            current_pass = random.sample(point_indices, min(remaining, len(point_indices)))
+            passes.append(current_pass)
+            remaining -= len(current_pass)
+        point_order = [point for current_pass in passes for point in current_pass]
+        actions = [actions_by_number[index] for index in point_order]
+        for action in actions:
+            self._validate_deployment_point(action.x, action.y, plan.screenshot_width, plan.screenshot_height)
 
         self.control.report(
             attackPlan={
-                "strategy": "dragon_da_test",
+                "strategy": strategy,
                 "plannedActionCount": len(actions),
-                "deploymentPointCount": len(actions),
-                "points": list(DRAGON_DA_POINT_INDICES),
+                "deploymentPointCount": len(point_indices),
+                "dragonCount": dragon_count,
+                "points": point_order,
+                "firstPassPoints": passes[0],
+                "remainingPassPoints": point_order[len(point_indices):],
+                "passes": passes,
             }
         )
         self._assert_game_ready()
         self._tap_slot(slot.bounding_box, plan.screenshot_width, plan.screenshot_height, "SELECT_DRAGONS")
-        for action in actions:
-            self._validate_deployment_point(action.x, action.y, plan.screenshot_width, plan.screenshot_height)
-        logging.info("Dragon D-A test: deploying one Dragon at points 1 through 10")
-        self._deploy_action_round(actions, "DEPLOY_DRAGONS_DA")
-        self._wait_after_deployment()
+        logging.info("Dragon %s test: %s Dragons; point passes: %s", edge, dragon_count, passes)
+        self._deploy_action_round(actions, f"DEPLOY_DRAGONS_{edge}")
+        delay_seconds = random.choice(self.bot_config.dragon_post_deployment_wait_seconds_options)
+        logging.info("Waiting %.1f seconds after Dragon deployment before surrendering", delay_seconds)
+        self._wait_with_checkpoints(delay_seconds, "POST_DEPLOYMENT_WAIT")
         return BattleEndController(
             adb_controller=self.adb_controller,
             package_name=self.package_name,

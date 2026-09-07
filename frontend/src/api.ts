@@ -90,8 +90,9 @@ export interface ConfigPatch {
   battlesPerSession?: 1 | 5 | 10;
   farmMode?: "home_village" | "builder_base";
   builderTroopSlotCount?: number;
+  dragonCount?: number;
   maxOcrAttemptsPerBase?: number;
-  strategy?: "sneaky_goblin";
+  strategy?: "sneaky_goblin" | "dragon";
   dryRun?: boolean;
 }
 

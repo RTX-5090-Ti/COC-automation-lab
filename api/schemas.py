@@ -16,8 +16,9 @@ class BotConfigUpdate(BaseModel):
     battles_per_session: Literal[1, 5, 10] | None = Field(default=None, alias="battlesPerSession")
     farm_mode: Literal["home_village", "builder_base"] | None = Field(default=None, alias="farmMode")
     builder_troop_slot_count: int | None = Field(default=None, alias="builderTroopSlotCount", ge=2, le=7)
+    dragon_count: int | None = Field(default=None, alias="dragonCount", ge=10, le=17, strict=True)
     max_ocr_attempts_per_base: int | None = Field(default=None, alias="maxOcrAttemptsPerBase", ge=1, le=10)
-    strategy: str | None = Field(default=None, alias="strategy", pattern="^sneaky_goblin$")
+    strategy: Literal["sneaky_goblin", "dragon"] | None = Field(default=None, alias="strategy")
     dry_run: bool | None = Field(default=None, alias="dryRun")
 
 class ActionResponse(BaseModel):

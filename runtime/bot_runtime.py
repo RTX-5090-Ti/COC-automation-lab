@@ -320,7 +320,8 @@ class BotRuntime:
                 screen_threshold=0.85,
                 battlefield_diff_threshold=0.05,
                 dry_run=config.dry_run,
-                random_setup_test=True,
+                random_setup_test=config.strategy == "sneaky_goblin",
+                random_dragon_setup=config.strategy == "dragon",
                 setup_history=setup_history,
                 control=control,
             )

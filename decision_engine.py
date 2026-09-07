@@ -43,6 +43,8 @@ class BotConfig:
     battles_per_session: int
     farm_mode: str
     builder_troop_slot_count: int
+    dragon_count: int
+    dragon_post_deployment_wait_seconds_options: tuple[float, ...]
     strategy: str
     sneaky_goblin_mode: str
     sneaky_goblin_slot_threshold: float
@@ -139,6 +141,8 @@ DEFAULT_CONFIG = {
     "battlesPerSession": 5,
     "farmMode": "home_village",
     "builderTroopSlotCount": 7,
+    "dragonCount": 10,
+    "dragonPostDeploymentWaitSecondsOptions": [40, 41, 42, 43, 44, 45],
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
     "sneakyGoblinSlotThreshold": 0.85,
@@ -246,7 +250,17 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
             if "builderTroopSlotCount" in raw_config
             else 7
         ),
+        dragon_count=(
+            _read_int_in_range(raw_config, "dragonCount", minimum=10, maximum=17)
+            if "dragonCount" in raw_config
+            else 10
+        ),
         strategy=_read_non_empty_string(raw_config, "strategy"),
+        dragon_post_deployment_wait_seconds_options=(
+            _read_non_negative_float_list(raw_config, "dragonPostDeploymentWaitSecondsOptions")
+            if "dragonPostDeploymentWaitSecondsOptions" in raw_config
+            else (40.0, 41.0, 42.0, 43.0, 44.0, 45.0)
+        ),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
         sneaky_goblin_slot_threshold=_read_ratio(raw_config, "sneakyGoblinSlotThreshold"),
         battlefield_left_ratio=_read_ratio(raw_config, "battlefieldLeftRatio"),
@@ -613,8 +627,8 @@ def _validate_limit_relationships(config: BotConfig) -> None:
         raise DecisionEngineError(
             "Configuration value 'plannedDeploymentPoints' exceeds the configured edge point total."
         )
-    if config.strategy != "sneaky_goblin":
-        raise DecisionEngineError("Configuration value 'strategy' must currently be 'sneaky_goblin'.")
+    if config.strategy not in ("sneaky_goblin", "dragon"):
+        raise DecisionEngineError("Configuration value 'strategy' must be 'sneaky_goblin' or 'dragon'.")
     if config.sneaky_goblin_mode != "perimeter_sweep":
         raise DecisionEngineError(
             "Configuration value 'sneakyGoblinMode' must currently be 'perimeter_sweep'."

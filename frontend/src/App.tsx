@@ -11,6 +11,7 @@ const EDITABLE_FIELDS: Array<{ key: keyof ConfigPatch; label: string; type: "num
   { key: "battlesPerSession", label: "Battles per Session", type: "select", hint: "Choose 1 for a quick test, or 5/10 consecutive attacks." },
   { key: "maxOcrAttemptsPerBase", label: "OCR Attempts / Base", type: "number", hint: "Retry limit for an unreadable base." },
   { key: "strategy", label: "Strategy", type: "select", hint: "Current supported strategy." },
+  { key: "dragonCount", label: "Dragon Count", type: "number", hint: "10-17 Dragons per battle. A random edge is selected for each attack." },
   { key: "dryRun", label: "Dry Run", type: "boolean", hint: "When false, the bot can send real ADB taps." },
 ];
 
@@ -173,6 +174,11 @@ export function App() {
 
   async function saveConfig() {
     if (!config) return;
+    const dragonCount = Number(draft.dragonCount);
+    if (!Number.isInteger(dragonCount) || dragonCount < 10 || dragonCount > 17) {
+      setError("Dragon Count must be a whole number from 10 to 17.");
+      return;
+    }
     const patch: Record<string, string | number | boolean> = {};
     for (const field of EDITABLE_FIELDS) {
       const before = valueForField(config, field.key);
@@ -180,7 +186,7 @@ export function App() {
       if (after === before) continue;
       if (field.type === "number") patch[field.key] = Number(after);
       else if (field.type === "boolean") patch[field.key] = Boolean(after);
-      else if (field.key === "strategy") patch[field.key] = "sneaky_goblin";
+      else if (field.key === "strategy") patch[field.key] = String(after);
       else patch[field.key] = Number(after);
     }
     if (farmModeDraft !== config.farmMode) patch.farmMode = farmModeDraft;
@@ -324,8 +330,9 @@ export function App() {
             </section>
           ) : (
             <>
+              {draft.strategy === "dragon" && <p className="config-note">Dragon checks resource thresholds, deploys on a random edge, then waits 40-45 seconds before returning home.</p>}
               <div className="config-fields">
-                {EDITABLE_FIELDS.map((field) => <label key={field.key} className={field.key === "dryRun" ? "dry-run-field" : ""}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.type === "boolean" ? <input type="checkbox" checked={Boolean(draft[field.key])} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.checked })} /> : field.type === "select" ? <select value={String(draft[field.key] ?? (field.key === "strategy" ? "sneaky_goblin" : "5"))} disabled={isActive} onChange={(event) => updateSelectDraft(field.key, event.target.value)}>{field.key === "strategy" ? <option value="sneaky_goblin">Sneaky Goblin</option> : <><option value="1">1 battle (test)</option><option value="5">5 battles</option><option value="10">10 battles</option></>}</select> : <input type="number" min="0" value={String(draft[field.key] ?? "")} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
+                {EDITABLE_FIELDS.filter((field) => field.key !== "dragonCount" || draft.strategy === "dragon").map((field) => <label key={field.key} className={field.key === "dryRun" ? "dry-run-field" : ""}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.type === "boolean" ? <input type="checkbox" checked={Boolean(draft[field.key])} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.checked })} /> : field.type === "select" ? <select value={String(draft[field.key] ?? (field.key === "strategy" ? "sneaky_goblin" : "5"))} disabled={isActive} onChange={(event) => updateSelectDraft(field.key, event.target.value)}>{field.key === "strategy" ? <><option value="sneaky_goblin">Sneaky Goblin</option><option value="dragon">Dragon</option></> : <><option value="1">1 battle (test)</option><option value="5">5 battles</option><option value="10">10 battles</option></>}</select> : <input type="number" min={field.key === "dragonCount" ? 10 : 0} max={field.key === "dragonCount" ? 17 : undefined} step={field.key === "dragonCount" ? 1 : undefined} value={String(draft[field.key] ?? "")} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
               </div>
               <details><summary>Advanced configuration (read-only)</summary><dl className="readonly-list">{advancedConfig.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatValue(value)}</dd></div>)}</dl></details>
             </>

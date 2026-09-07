@@ -101,8 +101,16 @@ def build_parser() -> argparse.ArgumentParser:
     action_group.add_argument(
         "--full-flow-dragon-da-test",
         action="store_true",
-        help="Run one full flow, deploy 1 Dragon at each D-A point 1 through 10, then return HOME.",
+        help="Deploy Dragon Count in shuffled passes on D-A points 1-10, then return HOME; bypass resources.",
     )
+    for edge in ("ab", "bc", "cd"):
+        action_group.add_argument(
+            f"--full-flow-dragon-{edge}-test",
+            dest="dragon_edge_test",
+            action="store_const",
+            const=edge.upper(),
+            help=f"Deploy Dragon Count in shuffled passes on {edge.upper()}, then return HOME; bypass resources.",
+        )
     action_group.add_argument(
         "--full-flow-super-wall-breaker-point-1-test",
         action="store_true",
@@ -262,6 +270,7 @@ def main() -> int:
             or args.full_flow_two_point_deployment_test
             or args.full_flow_deployment_points_test
             or args.full_flow_dragon_da_test
+            or args.dragon_edge_test
             or args.full_flow_super_wall_breaker_point_1_test
             or args.full_flow_setup_1_test
             or args.full_flow_setup_2_test
@@ -284,6 +293,7 @@ def main() -> int:
                 two_point_deployment_test=args.full_flow_two_point_deployment_test,
                 deployment_point_test_indices=args.full_flow_deployment_points_test or (),
                 dragon_da_test=args.full_flow_dragon_da_test,
+                dragon_edge_test=args.dragon_edge_test,
                 super_wall_breaker_test_point_1=args.full_flow_super_wall_breaker_point_1_test,
                 setup_1_test=args.full_flow_setup_1_test,
                 setup_2_test=args.full_flow_setup_2_test,
