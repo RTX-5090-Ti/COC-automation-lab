@@ -57,6 +57,24 @@ class BotConfig:
     battlefield_diamond_bottom_y_ratio: float
     battlefield_diamond_left_x_ratio: float
     battlefield_diamond_left_y_ratio: float
+    builder_battlefield_a_x_ratio: float
+    builder_battlefield_a_y_ratio: float
+    builder_battlefield_b_x_ratio: float
+    builder_battlefield_b_y_ratio: float
+    builder_battlefield_c_x_ratio: float
+    builder_battlefield_c_y_ratio: float
+    builder_battlefield_d_x_ratio: float
+    builder_battlefield_d_y_ratio: float
+    builder_boundary_de_length_ratio: float
+    builder_boundary_bf_length_ratio: float
+    builder_boundary_bg_length_ratio: float
+    builder_boundary_dh_length_ratio: float
+    builder_deployment_points_de: int
+    builder_deployment_points_bf: int
+    builder_deployment_points_bg: int
+    builder_deployment_points_dh: int
+    builder_deployment_edge_inset_pixels: int
+    builder_post_deployment_wait_seconds_options: tuple[float, ...]
     next_button_exclude_left_ratio: float
     next_button_exclude_right_ratio: float
     next_button_exclude_top_ratio: float
@@ -134,6 +152,24 @@ DEFAULT_CONFIG = {
     "battlefieldDiamondBottomYRatio": 0.93,
     "battlefieldDiamondLeftXRatio": 0.12,
     "battlefieldDiamondLeftYRatio": 0.47,
+    "builderBattlefieldAXRatio": 0.50,
+    "builderBattlefieldAYRatio": -0.05,
+    "builderBattlefieldBXRatio": 0.90,
+    "builderBattlefieldBYRatio": 0.47,
+    "builderBattlefieldCXRatio": 0.50,
+    "builderBattlefieldCYRatio": 1.03,
+    "builderBattlefieldDXRatio": 0.09,
+    "builderBattlefieldDYRatio": 0.47,
+    "builderBoundaryDeLengthRatio": 0.50,
+    "builderBoundaryBfLengthRatio": 0.50,
+    "builderBoundaryBgLengthRatio": 0.50,
+    "builderBoundaryDhLengthRatio": 0.50,
+    "builderDeploymentPointsDe": 10,
+    "builderDeploymentPointsBf": 10,
+    "builderDeploymentPointsBg": 5,
+    "builderDeploymentPointsDh": 3,
+    "builderDeploymentEdgeInsetPixels": 28,
+    "builderPostDeploymentWaitSecondsOptions": [0.5, 1.0, 0.8, 1.2, 0.3, 0.4],
     "nextButtonExcludeLeftRatio": 0.83,
     "nextButtonExcludeRightRatio": 0.98,
     "nextButtonExcludeTopRatio": 0.60,
@@ -218,6 +254,44 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
         battlefield_diamond_bottom_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondBottomYRatio"),
         battlefield_diamond_left_x_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondLeftXRatio"),
         battlefield_diamond_left_y_ratio=_read_diamond_vertex_ratio(raw_config, "battlefieldDiamondLeftYRatio"),
+        builder_battlefield_a_x_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldAXRatio", "battlefieldDiamondTopXRatio"),
+        builder_battlefield_a_y_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldAYRatio", "battlefieldDiamondTopYRatio"),
+        builder_battlefield_b_x_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldBXRatio", "battlefieldDiamondRightXRatio"),
+        builder_battlefield_b_y_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldBYRatio", "battlefieldDiamondRightYRatio"),
+        builder_battlefield_c_x_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldCXRatio", "battlefieldDiamondBottomXRatio"),
+        builder_battlefield_c_y_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldCYRatio", "battlefieldDiamondBottomYRatio"),
+        builder_battlefield_d_x_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldDXRatio", "battlefieldDiamondLeftXRatio"),
+        builder_battlefield_d_y_ratio=_read_builder_vertex_ratio(raw_config, "builderBattlefieldDYRatio", "battlefieldDiamondLeftYRatio"),
+        builder_boundary_de_length_ratio=(
+            _read_ratio(raw_config, "builderBoundaryDeLengthRatio")
+            if "builderBoundaryDeLengthRatio" in raw_config
+            else 0.50
+        ),
+        builder_boundary_bf_length_ratio=(
+            _read_ratio(raw_config, "builderBoundaryBfLengthRatio")
+            if "builderBoundaryBfLengthRatio" in raw_config
+            else 0.50
+        ),
+        builder_boundary_bg_length_ratio=(
+            _read_ratio(raw_config, "builderBoundaryBgLengthRatio")
+            if "builderBoundaryBgLengthRatio" in raw_config
+            else 0.50
+        ),
+        builder_boundary_dh_length_ratio=(
+            _read_ratio(raw_config, "builderBoundaryDhLengthRatio")
+            if "builderBoundaryDhLengthRatio" in raw_config
+            else 0.50
+        ),
+        builder_deployment_points_de=_read_int_in_range(raw_config, "builderDeploymentPointsDe", minimum=1, maximum=20) if "builderDeploymentPointsDe" in raw_config else 10,
+        builder_deployment_points_bf=_read_int_in_range(raw_config, "builderDeploymentPointsBf", minimum=1, maximum=20) if "builderDeploymentPointsBf" in raw_config else 10,
+        builder_deployment_points_bg=_read_int_in_range(raw_config, "builderDeploymentPointsBg", minimum=1, maximum=20) if "builderDeploymentPointsBg" in raw_config else 5,
+        builder_deployment_points_dh=_read_int_in_range(raw_config, "builderDeploymentPointsDh", minimum=1, maximum=20) if "builderDeploymentPointsDh" in raw_config else 3,
+        builder_deployment_edge_inset_pixels=_read_int_in_range(raw_config, "builderDeploymentEdgeInsetPixels", minimum=0, maximum=200) if "builderDeploymentEdgeInsetPixels" in raw_config else 28,
+        builder_post_deployment_wait_seconds_options=(
+            _read_non_negative_float_list(raw_config, "builderPostDeploymentWaitSecondsOptions")
+            if "builderPostDeploymentWaitSecondsOptions" in raw_config
+            else (0.5, 1.0, 0.8, 1.2, 0.3, 0.4)
+        ),
         next_button_exclude_left_ratio=_read_ratio(raw_config, "nextButtonExcludeLeftRatio"),
         next_button_exclude_right_ratio=_read_ratio(raw_config, "nextButtonExcludeRightRatio"),
         next_button_exclude_top_ratio=_read_ratio(raw_config, "nextButtonExcludeTopRatio"),
@@ -486,6 +560,13 @@ def _read_diamond_vertex_ratio(raw_config: dict, key: str) -> float:
             f"Configuration value '{key}' must be a number between -1 and 2."
         )
     return float(value)
+
+
+def _read_builder_vertex_ratio(raw_config: dict, key: str, legacy_key: str) -> float:
+    """Read a Builder Base vertex, falling back to the matching Home Village vertex for old configs."""
+    if key not in raw_config:
+        return _read_diamond_vertex_ratio(raw_config, legacy_key)
+    return _read_diamond_vertex_ratio(raw_config, key)
 
 
 def _read_non_empty_string(raw_config: dict, key: str) -> str:

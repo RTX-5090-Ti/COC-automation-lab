@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from adb_controller import ADBController, ADBError
+from builder_base_deployment_test_controller import BuilderBaseDeploymentTestController
 from decision_engine import CONFIG_PATH, BotConfig, load_bot_config
 from project_paths import RUNTIME_DATA_DIR
 from resource_reader import ResourceReader
@@ -277,8 +278,6 @@ class BotRuntime:
             logging.warning("History storage failure while trying to %s: %s", action, error)
 
     def _run_default_worker(self, control: RuntimeControl, config: BotConfig) -> None:
-        if config.farm_mode != "home_village":
-            raise RuntimeError("Builder Base farming is not implemented yet. Select Home Village before starting a session.")
         controller = ADBController()
         controller.check_adb_available()
         device = controller.select_device()
@@ -288,6 +287,20 @@ class BotRuntime:
         foreground = controller.get_foreground_app()
         control.report(emulatorConnected=True, gameRunning=controller.is_app_running(package_name), gameForeground=foreground == package_name, deviceSerial=device.serial, phase=f"CONNECTED:{device.serial}")
         control.log(logging.INFO, f"Connected to Android device: {device.serial}")
+        if config.farm_mode == "builder_base":
+            control.report(battlesPlanned=1, battlesCompleted=0)
+            # Builder Base's production flow is the same bounded flow validated by
+            # the CLI test: find a base, deploy one selected troop, then return home.
+            BuilderBaseDeploymentTestController(
+                adb_controller=controller,
+                bot_config=config,
+                package_name=package_name,
+                screen_threshold=0.85,
+                dry_run=config.dry_run,
+                control=control,
+            ).run()
+            control.report(battlesCompleted=1)
+            return
         setup_history: list[str] = []
         completed_battles = 0
         control.report(battlesPlanned=config.battles_per_session, battlesCompleted=completed_battles)

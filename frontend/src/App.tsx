@@ -210,7 +210,6 @@ export function App() {
   const isActive = ACTIVE_STATES.has(runtimeState);
   const isLiveMode = config?.dryRun === false || telemetry?.dryRun === false;
   const preflightBlocked = preflight?.overallStatus === "blocked";
-  const builderBaseSelected = config?.farmMode === "builder_base";
   const failedPreflightChecks = preflight?.checks.filter((check) => check.status === "fail").map((check) => check.title).join(", ") ?? "";
   const externallyOwnedBackend = new URLSearchParams(window.location.search).get("backendOwnership") === "external";
   const advancedConfig = config ? Object.entries(config).filter(([key]) => key !== "farmMode" && !EDITABLE_FIELDS.some((field) => field.key === key)) : [];
@@ -246,7 +245,7 @@ export function App() {
           </dl>
           {telemetry?.diagnosticScreenshotPath && <ArtifactPath path={telemetry.diagnosticScreenshotPath} />}
           <div className="actions">
-            <button className="primary" disabled={isActive || preflightBlocked || builderBaseSelected} onClick={() => void sessionAction("start")}>Start session</button>
+            <button className="primary" disabled={isActive || preflightBlocked} onClick={() => void sessionAction("start")}>Start session</button>
             <button disabled={runtimeState !== "RUNNING"} onClick={() => void sessionAction("pause")}>Pause</button>
             <button disabled={runtimeState !== "PAUSED"} onClick={() => void sessionAction("resume")}>Resume</button>
             <button className="danger" disabled={!isActive} onClick={() => void sessionAction("stop")}>Stop safely</button>
@@ -300,17 +299,16 @@ export function App() {
         <article className="panel config-panel">
           <div className="panel-heading"><div><p className="eyebrow">CONFIGURATION</p><h2>Safe controls</h2></div><button className="primary" disabled={isActive || !config} onClick={() => void saveConfig()}>Save changed fields</button></div>
           <p className="config-note">Only fields accepted by <code>PUT /api/config</code> are editable. Advanced fields remain read-only.</p>
+          <section className="farm-mode-control" aria-label="Farm mode">
+            <div><p className="eyebrow">VILLAGE TARGET</p><h3>Choose where to farm</h3><p className="config-note">Home Village uses resource filtering. Builder Base runs its dedicated deployment and return-home flow.</p></div>
+            <select value={farmModeDraft} disabled={isActive} onChange={(event) => setFarmModeDraft(event.target.value as "home_village" | "builder_base")}>
+              <option value="home_village">Home Village</option>
+              <option value="builder_base">Builder Base</option>
+            </select>
+          </section>
           <div className="config-fields">
             {EDITABLE_FIELDS.map((field) => <label key={field.key} className={field.key === "dryRun" ? "dry-run-field" : ""}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.type === "boolean" ? <input type="checkbox" checked={Boolean(draft[field.key])} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.checked })} /> : field.type === "select" ? <select value={String(draft[field.key] ?? (field.key === "strategy" ? "sneaky_goblin" : "5"))} disabled={isActive} onChange={(event) => updateSelectDraft(field.key, event.target.value)}>{field.key === "strategy" ? <option value="sneaky_goblin">Sneaky Goblin</option> : <><option value="1">1 battle (test)</option><option value="5">5 battles</option><option value="10">10 battles</option></>}</select> : <input type="number" min="0" value={String(draft[field.key] ?? "")} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
           </div>
-          <section className="farm-mode-control" aria-label="Farm mode">
-            <div><p className="eyebrow">FARM MODE</p><h3>Village target</h3><p className="config-note">Builder Base is a saved UI setting only until its detection and battle flow are implemented.</p></div>
-            <select value={farmModeDraft} disabled={isActive} onChange={(event) => setFarmModeDraft(event.target.value as "home_village" | "builder_base")}>
-              <option value="home_village">Home Village</option>
-              <option value="builder_base">Builder Base (coming soon)</option>
-            </select>
-          </section>
-          {builderBaseSelected && <p className="farm-mode-warning"><strong>Builder Base selected:</strong> Start Session is unavailable until Builder Base automation is implemented.</p>}
           <details><summary>Advanced configuration (read-only)</summary><dl className="readonly-list">{advancedConfig.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatValue(value)}</dd></div>)}</dl></details>
         </article>
 

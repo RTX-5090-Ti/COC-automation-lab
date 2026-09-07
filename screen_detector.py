@@ -19,6 +19,9 @@ class ScreenState(str, Enum):
     ATTACK_MENU = "ATTACK_MENU"
     ARMY_CONFIRMATION = "ARMY_CONFIRMATION"
     ENEMY_BASE = "ENEMY_BASE"
+    BUILDER_HOME = "BUILDER_HOME"
+    BUILDER_ATTACK_MENU = "BUILDER_ATTACK_MENU"
+    BUILDER_ENEMY_BASE = "BUILDER_ENEMY_BASE"
     UNKNOWN = "UNKNOWN"
 
 
@@ -104,6 +107,7 @@ def detect_screen(
     *,
     threshold: float = 0.85,
     debug_directory: str | Path = DEBUG_DIRECTORY,
+    templates: tuple[tuple[ScreenState, Path, str], ...] | None = None,
 ) -> ScreenDetectionResult:
     screenshot_file = Path(screenshot_path)
     screenshot = _load_image(screenshot_file, "screenshot")
@@ -113,7 +117,12 @@ def detect_screen(
     best_valid_match: ScreenDetectionResult | None = None
     best_candidate: ScreenDetectionResult | None = None
 
-    for screen_template in REGISTERED_TEMPLATES:
+    registered_templates = (
+        tuple(ScreenTemplate(state, path, name) for state, path, name in templates)
+        if templates is not None
+        else REGISTERED_TEMPLATES
+    )
+    for screen_template in registered_templates:
         template = _load_image(screen_template.template_path, f"template {screen_template.template_name}")
         result = _match_template(screenshot, template, screen_template)
 

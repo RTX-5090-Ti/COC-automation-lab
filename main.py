@@ -6,6 +6,9 @@ import sys
 
 from adb_controller import ADBController, ADBError
 from battle_end_controller import BattleEndController, BattleEndControllerError
+from builder_base_end_controller import BuilderBaseEndController, BuilderBaseEndControllerError
+from builder_base_deployment_test_controller import BuilderBaseDeploymentTestController, BuilderBaseDeploymentTestControllerError
+from builder_base_flow_controller import BuilderBaseFlowController, BuilderBaseFlowControllerError
 from battlefield_fingerprint import BattlefieldFingerprintError
 from decision_engine import DecisionEngineError, load_bot_config
 from resource_reader import ResourceReader, ResourceReaderError
@@ -137,6 +140,23 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run setup 8: clockwise and counter-clockwise Goblin sweeps separated by Super Wall Breakers.",
     )
     action_group.add_argument("--full-flow-random-setup-test", action="store_true", help="Run one full flow and randomly choose Setup 1 through 8 after ATTACK.")
+    action_group.add_argument(
+        "--builder-base-flow-test",
+        action="store_true",
+        help="Run Builder Base: Attack -> Find Now -> verified enemy base, without OCR or troop deployment.",
+    )
+    action_group.add_argument(
+        "--builder-end-battle-test",
+        action="store_true",
+        help="Run Builder Base: Surrender -> OK -> Return Home -> verify Home Village.",
+    )
+    action_group.add_argument(
+        "--builder-full-flow-one-random-troop-test",
+        "--builder-full-flow-troop-1-point-1-test",
+        dest="builder_full_flow_one_random_troop_test",
+        action="store_true",
+        help="Run Builder Base: Attack -> Find Now -> deploy one random TROOP 1-7 at one random point -> wait -> return Home.",
+    )
     parser.add_argument(
         "--return-home-timeout-seconds",
         type=float,
@@ -199,6 +219,33 @@ def main() -> int:
                 screen_transition_poll_seconds_options=bot_config.screen_transition_poll_seconds_options,
             ).run()
 
+        if args.builder_base_flow_test:
+            return BuilderBaseFlowController(
+                adb_controller=controller,
+                bot_config=bot_config,
+                package_name=args.package,
+                screen_threshold=args.screen_threshold,
+                dry_run=False if args.no_dry_run else bot_config.dry_run,
+            ).run()
+
+        if args.builder_end_battle_test:
+            return BuilderBaseEndController(
+                adb_controller=controller,
+                package_name=args.package,
+                screen_threshold=args.screen_threshold,
+                poll_seconds_options=bot_config.screen_transition_poll_seconds_options,
+                dry_run=False if args.no_dry_run else bot_config.dry_run,
+            ).run()
+
+        if args.builder_full_flow_one_random_troop_test:
+            return BuilderBaseDeploymentTestController(
+                adb_controller=controller,
+                bot_config=bot_config,
+                package_name=args.package,
+                screen_threshold=args.screen_threshold,
+                dry_run=False if args.no_dry_run else bot_config.dry_run,
+            ).run()
+
         if (
             args.full_flow_test
             or args.full_flow_two_point_deployment_test
@@ -257,6 +304,15 @@ def main() -> int:
         logging.error(str(error))
         return 1
     except TrialFlowControllerError as error:
+        logging.error(str(error))
+        return 1
+    except BuilderBaseFlowControllerError as error:
+        logging.error(str(error))
+        return 1
+    except BuilderBaseEndControllerError as error:
+        logging.error(str(error))
+        return 1
+    except BuilderBaseDeploymentTestControllerError as error:
         logging.error(str(error))
         return 1
     except (ADBError, BattlefieldFingerprintError) as error:
