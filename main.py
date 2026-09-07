@@ -155,7 +155,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--builder-full-flow-troop-1-point-1-test",
         dest="builder_full_flow_one_random_troop_test",
         action="store_true",
-        help="Run Builder Base: Attack -> Find Now -> deploy one random TROOP 1-7 at one random point -> wait -> return Home.",
+        help="Run the configured number of Builder Base flows: Attack -> Find Now -> deploy one random configured TROOP -> wait -> return Home.",
     )
     parser.add_argument(
         "--return-home-timeout-seconds",
@@ -238,13 +238,19 @@ def main() -> int:
             ).run()
 
         if args.builder_full_flow_one_random_troop_test:
-            return BuilderBaseDeploymentTestController(
-                adb_controller=controller,
-                bot_config=bot_config,
-                package_name=args.package,
-                screen_threshold=args.screen_threshold,
-                dry_run=False if args.no_dry_run else bot_config.dry_run,
-            ).run()
+            for battle_number in range(1, bot_config.battles_per_session + 1):
+                logging.info("Starting Builder Base battle %s / %s", battle_number, bot_config.battles_per_session)
+                result = BuilderBaseDeploymentTestController(
+                    adb_controller=controller,
+                    bot_config=bot_config,
+                    package_name=args.package,
+                    screen_threshold=args.screen_threshold,
+                    dry_run=False if args.no_dry_run else bot_config.dry_run,
+                ).run()
+                if result != 0:
+                    return result
+                logging.info("Builder Base battle %s / %s completed", battle_number, bot_config.battles_per_session)
+            return 0
 
         if (
             args.full_flow_test

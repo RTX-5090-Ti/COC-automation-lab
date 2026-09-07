@@ -11,23 +11,23 @@ let backendOwnership = "external";
 app.setName("CoC Field Console");
 
 const gotSingleInstanceLock = app.requestSingleInstanceLock();
-if (!gotSingleInstanceLock) {
-  app.quit();
+if (gotSingleInstanceLock) {
+  app.on("second-instance", () => {
+    if (!mainWindow) return;
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  });
 }
-
-app.on("second-instance", () => {
-  if (!mainWindow) return;
-  if (mainWindow.isMinimized()) mainWindow.restore();
-  mainWindow.focus();
-});
 
 function backendRoot() {
   return app.isPackaged ? path.join(process.resourcesPath, "backend-runtime") : path.resolve(__dirname, "../..");
 }
 
 function apiPort() {
-  const parsed = Number.parseInt(process.env.COC_API_PORT ?? "8000", 10);
-  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : 8000;
+  // Keep packaged desktop sessions separate from a source FastAPI server on 8000.
+  const defaultPort = app.isPackaged ? "8011" : "8000";
+  const parsed = Number.parseInt(process.env.COC_API_PORT ?? defaultPort, 10);
+  return Number.isInteger(parsed) && parsed > 0 && parsed < 65536 ? parsed : Number(defaultPort);
 }
 
 function apiOrigin() {
@@ -110,6 +110,7 @@ async function startOrReuseBackend() {
   );
   const childEnvironment = {
     ...process.env,
+    COC_API_PORT: String(apiPort()),
     COC_CONFIG_PATH: configPath,
     COC_RUNTIME_DATA_DIR: runtimeDataDir,
   };

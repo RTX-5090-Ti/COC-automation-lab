@@ -3,6 +3,9 @@ from __future__ import annotations
 import logging
 import random
 import time
+from pathlib import Path
+
+import cv2
 
 from adb_controller import ADBController
 from builder_base_battlefield import builder_deployment_points
@@ -47,8 +50,9 @@ class BuilderBaseDeploymentTestController:
             return 0
 
         screenshot_size = self._verify_enemy_base()
-        troop = random.choice(builder_army_slots(screenshot_size))
-        self._tap_box(
+        available_troops = builder_army_slots(screenshot_size)[: self.bot_config.builder_troop_slot_count]
+        troop = random.choice(available_troops)
+        troop_tap = self._tap_box(
             BoundingBox(troop.left, troop.top, troop.right - troop.left, troop.bottom - troop.top),
             screenshot_size,
             f"TROOP {troop.index}",
@@ -58,9 +62,13 @@ class BuilderBaseDeploymentTestController:
         self._verify_enemy_base()
         deployment_points = builder_deployment_points(screenshot_size, self.bot_config)
         point = random.choice(deployment_points)
+        debug_path = self._save_deployment_taps_debug(troop.index, troop_tap, point.sequence_number, (point.x, point.y))
         self.control.checkpoint(f"BUILDER_DEPLOY_POINT_{point.sequence_number}")
         self.adb_controller.tap(point.x, point.y)
-        self.control.report(attackPlan={"strategy": "builder_base_test", "plannedActionCount": 1, "deploymentPointCount": len(deployment_points), "selectedTroopSlot": troop.index, "selectedPoint": point.sequence_number})
+        self.control.report(
+            attackPlan={"strategy": "builder_base_test", "plannedActionCount": 1, "deploymentPointCount": len(deployment_points), "availableTroopSlots": self.bot_config.builder_troop_slot_count, "selectedTroopSlot": troop.index, "selectedPoint": point.sequence_number},
+            debugArtifactPaths=[debug_path.as_posix()] if debug_path else [],
+        )
         logging.info("TROOP %s deployed once at Builder Base point %s: (%s, %s)", troop.index, point.sequence_number, point.x, point.y)
 
         wait_seconds = random.choice(self.bot_config.builder_post_deployment_wait_seconds_options)
@@ -85,7 +93,7 @@ class BuilderBaseDeploymentTestController:
             )
         return detection.screenshot_size
 
-    def _tap_box(self, box: BoundingBox, screenshot_size: tuple[int, int], label: str) -> None:
+    def _tap_box(self, box: BoundingBox, screenshot_size: tuple[int, int], label: str) -> tuple[int, int]:
         try:
             point = select_random_point_in_box(box, screenshot_size)
         except TapPointError as error:
@@ -93,6 +101,36 @@ class BuilderBaseDeploymentTestController:
         self.control.checkpoint(label.replace(" ", "_"))
         self.adb_controller.tap(*point)
         logging.info("%s selected at (%s, %s)", label, *point)
+        return point
+
+    @staticmethod
+    def _save_deployment_taps_debug(
+        troop_index: int,
+        troop_tap: tuple[int, int],
+        point_sequence: int,
+        deployment_tap: tuple[int, int],
+    ) -> Path | None:
+        """Save the exact random input coordinates on the current Builder Base screenshot."""
+        image = cv2.imread(str(CURRENT_SCREENSHOT_PATH), cv2.IMREAD_COLOR)
+        if image is None:
+            logging.warning("Could not save Builder Base deployment tap debug image: screenshot is unreadable.")
+            return None
+
+        for coordinate, color, label in (
+            (troop_tap, (0, 215, 255), f"TROOP {troop_index} TAP"),
+            (deployment_tap, (0, 0, 255), f"POINT {point_sequence} DEPLOY"),
+        ):
+            cv2.drawMarker(image, coordinate, color, markerType=cv2.MARKER_CROSS, markerSize=30, thickness=3)
+            cv2.circle(image, coordinate, 16, color, 2)
+            cv2.putText(image, label, (coordinate[0] + 18, coordinate[1] - 18), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)
+
+        output_path = DEBUG_DIRECTORY / "builder_base_deployment_taps.png"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if not cv2.imwrite(str(output_path), image):
+            logging.warning("Could not write Builder Base deployment tap debug image: %s", output_path)
+            return None
+        logging.info("Builder Base deployment tap debug image saved to %s", output_path)
+        return output_path
 
     def _assert_game_ready(self) -> None:
         self.control.checkpoint()

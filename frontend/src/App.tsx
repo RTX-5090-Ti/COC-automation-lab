@@ -76,6 +76,7 @@ export function App() {
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [draft, setDraft] = useState<Record<string, string | boolean>>({});
   const [farmModeDraft, setFarmModeDraft] = useState<"home_village" | "builder_base">("home_village");
+  const [builderTroopCountDraft, setBuilderTroopCountDraft] = useState(7);
   const [connection, setConnection] = useState<"retrying" | "connected" | "unavailable">("retrying");
   const [notice, setNotice] = useState<string>("");
   const [error, setError] = useState<string>("");
@@ -88,6 +89,7 @@ export function App() {
     setConfig(next);
     setDraft(Object.fromEntries(EDITABLE_FIELDS.map(({ key }) => [key, valueForField(next, key)])));
     setFarmModeDraft(next.farmMode === "builder_base" ? "builder_base" : "home_village");
+    setBuilderTroopCountDraft(Number(next.builderTroopSlotCount ?? 7));
   }
 
   async function refreshHistory() {
@@ -182,6 +184,7 @@ export function App() {
       else patch[field.key] = Number(after);
     }
     if (farmModeDraft !== config.farmMode) patch.farmMode = farmModeDraft;
+    if (builderTroopCountDraft !== Number(config.builderTroopSlotCount ?? 7)) patch.builderTroopSlotCount = builderTroopCountDraft;
     if (Object.keys(patch).length === 0) {
       setNotice("No configuration changes to save.");
       return;
@@ -191,6 +194,7 @@ export function App() {
       setConfig(next);
       setDraft(Object.fromEntries(EDITABLE_FIELDS.map(({ key }) => [key, valueForField(next, key)])));
       setFarmModeDraft(next.farmMode === "builder_base" ? "builder_base" : "home_village");
+      setBuilderTroopCountDraft(Number(next.builderTroopSlotCount ?? 7));
       setNotice("Configuration saved and validated.");
       setError("");
     } catch (requestError) {
@@ -208,6 +212,7 @@ export function App() {
 
   const runtimeState = status?.runtimeState ?? "IDLE";
   const isActive = ACTIVE_STATES.has(runtimeState);
+  const isBuilderBase = farmModeDraft === "builder_base";
   const isLiveMode = config?.dryRun === false || telemetry?.dryRun === false;
   const preflightBlocked = preflight?.overallStatus === "blocked";
   const failedPreflightChecks = preflight?.checks.filter((check) => check.status === "fail").map((check) => check.title).join(", ") ?? "";
@@ -267,17 +272,20 @@ export function App() {
       <section className="panel preflight-panel" aria-label="Preflight diagnostics">
         <div className="panel-heading"><div><p className="eyebrow">PREFLIGHT</p><h2>{preflight ? "Environment diagnostics" : "Not run yet"}</h2></div><div className="actions"><span className={`badge ${preflight ? preflightTone(preflight.overallStatus) : "quiet"}`}>{preflight?.overallStatus ?? "not run"}</span><button className="primary" disabled={preflightRunning || isActive} onClick={() => void runPreflight()}>{preflightRunning ? "Running checks..." : preflight ? "Run again" : "Run checks"}</button></div></div>
         <p className="config-note">Preflight performs read-only ADB checks and may save one diagnostic screenshot. It never starts a bot session or sends gameplay taps.</p>
-        {preflight && <><p className="timestamp">Checked {formatTime(preflight.checkedAt)}</p><div className="preflight-checks">{preflight.checks.map((check) => <article className={`preflight-check ${check.status}`} key={check.id}><div><span className={`badge ${preflightTone(check.status)}`}>{check.status}</span><strong>{check.title}</strong></div><p>{check.detail}</p>{check.remediation && <small>{check.remediation}</small>}{Object.keys(check.metadata).length > 0 && <code>{formatValue(check.metadata)}</code>}</article>)}</div></>}
+        {preflight && <details className="preflight-results"><summary><span>Latest check results</span><span className={`badge ${preflightTone(preflight.overallStatus)}`}>{preflight.overallStatus}</span></summary><div className="preflight-result-content"><p className="timestamp">Checked {formatTime(preflight.checkedAt)}</p><div className="preflight-checks">{preflight.checks.map((check) => <article className={`preflight-check ${check.status}`} key={check.id}><div><span className={`badge ${preflightTone(check.status)}`}>{check.status}</span><strong>{check.title}</strong></div><p>{check.detail}</p>{check.remediation && <small>{check.remediation}</small>}{Object.keys(check.metadata).length > 0 && <code>{formatValue(check.metadata)}</code>}</article>)}</div></div></details>}
       </section>
 
-      <section className="panel history-panel" aria-label="Session history">
-        <div className="panel-heading"><div><p className="eyebrow">SESSION HISTORY</p><h2>Stored audit trail</h2></div><button onClick={() => void refreshHistory()} disabled={historyLoading}>{historyLoading ? "Refreshing..." : "Refresh history"}</button></div>
+      <details className="panel history-panel" aria-label="Session history">
+        <summary><div><p className="eyebrow">SESSION HISTORY</p><h2>Stored audit trail</h2></div><span className="history-toggle">View history</span></summary>
+        <div className="history-content">
+        <div className="history-actions"><button onClick={() => void refreshHistory()} disabled={historyLoading}>{historyLoading ? "Refreshing..." : "Refresh history"}</button></div>
         <p className="config-note">Records are local, newest first. Artifact paths are references only and never open files from the dashboard.</p>
         {historyError && <p className="history-error">{historyError}</p>}
         {!historyLoading && !historyError && history.length === 0 && <p className="empty">No completed, stopped, or failed sessions have been recorded yet.</p>}
         {history.length > 0 && <div className="history-list">{history.map((item) => <button className={`history-row ${selectedHistory?.sessionId === item.sessionId ? "selected" : ""}`} key={item.sessionId} onClick={() => void selectHistory(item.sessionId)}><span className={`badge ${resultTone(item.terminalResult)}`}>{item.terminalResult ?? "unknown"}</span><strong>{formatTime(item.startedAt)}</strong><span>{formatDuration(item.durationSeconds)}</span><span>{item.dryRun ? "dry run" : "live"}</span><span>{item.strategy ?? "no strategy"}</span><span>{item.basesChecked} / {item.maxBases} bases</span><small>{item.terminalMessage ?? "No terminal message"}</small></button>)}</div>}
         {selectedHistory && <article className="history-detail"><div className="panel-heading"><div><p className="eyebrow">SESSION DETAIL</p><h2>{selectedHistory.sessionId}</h2></div><span className={`badge ${resultTone(selectedHistory.terminalResult)}`}>{selectedHistory.terminalResult}</span></div><div className="counter-grid"><div><span>Gold</span><strong>{formatValue(selectedHistory.telemetry?.gold)}</strong></div><div><span>Elixir</span><strong>{formatValue(selectedHistory.telemetry?.elixir)}</strong></div><div><span>Dark Elixir</span><strong>{formatValue(selectedHistory.telemetry?.darkElixir)}</strong></div><div><span>Decision</span><strong>{selectedHistory.telemetry?.decision ?? "--"}</strong></div></div><p className="detail-line">Terminal: {selectedHistory.terminalMessage ?? "None"}</p>{selectedHistory.lastError && <p className="history-error">Error: {selectedHistory.lastError}</p>}<p className="detail-line">Preflight: {selectedHistory.preflight?.overallStatus ?? "not run"}</p><p className="detail-line">Attack plan: {formatValue(selectedHistory.attackPlan)}</p><div className="history-paths">{selectedHistory.artifactPaths.map((path) => <ArtifactPath key={path} path={path} />)}</div><div className="timeline">{selectedHistory.events.map((event) => <div key={`${event.timestamp}-${event.message}`}><time>{formatTime(event.timestamp)}</time><span className={`log-level ${event.level?.toLowerCase() ?? ""}`}>{event.eventType}</span><p>{event.message}</p></div>)}</div></article>}
-      </section>
+        </div>
+      </details>
 
       <section className="grid secondary-grid">
         <article className="panel">
@@ -306,10 +314,22 @@ export function App() {
               <option value="builder_base">Builder Base</option>
             </select>
           </section>
-          <div className="config-fields">
-            {EDITABLE_FIELDS.map((field) => <label key={field.key} className={field.key === "dryRun" ? "dry-run-field" : ""}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.type === "boolean" ? <input type="checkbox" checked={Boolean(draft[field.key])} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.checked })} /> : field.type === "select" ? <select value={String(draft[field.key] ?? (field.key === "strategy" ? "sneaky_goblin" : "5"))} disabled={isActive} onChange={(event) => updateSelectDraft(field.key, event.target.value)}>{field.key === "strategy" ? <option value="sneaky_goblin">Sneaky Goblin</option> : <><option value="1">1 battle (test)</option><option value="5">5 battles</option><option value="10">10 battles</option></>}</select> : <input type="number" min="0" value={String(draft[field.key] ?? "")} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
-          </div>
-          <details><summary>Advanced configuration (read-only)</summary><dl className="readonly-list">{advancedConfig.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatValue(value)}</dd></div>)}</dl></details>
+          {isBuilderBase ? (
+            <section className="builder-base-config" aria-label="Builder Base configuration preview">
+              <div><p className="eyebrow">BUILDER BASE</p><h3>Builder Base controls</h3><p className="config-note">Set troop slots and the target number of consecutive Builder Base battles. The battle loop will be connected in the next logic step.</p></div>
+              <div className="builder-base-fields">
+                <label className="builder-troop-count"><span>Troops</span><input type="number" min="2" max="7" step="1" value={builderTroopCountDraft} disabled={isActive} onChange={(event) => setBuilderTroopCountDraft(Math.min(7, Math.max(2, Number(event.target.value) || 2)))} /></label>
+                <label className="builder-troop-count"><span>Battles</span><select value={String(draft.battlesPerSession ?? "1")} disabled={isActive} onChange={(event) => updateSelectDraft("battlesPerSession", event.target.value)}><option value="1">1 battle</option><option value="5">5 battles</option><option value="10">10 battles</option></select></label>
+              </div>
+            </section>
+          ) : (
+            <>
+              <div className="config-fields">
+                {EDITABLE_FIELDS.map((field) => <label key={field.key} className={field.key === "dryRun" ? "dry-run-field" : ""}><span><strong>{field.label}</strong><small>{field.hint}</small></span>{field.type === "boolean" ? <input type="checkbox" checked={Boolean(draft[field.key])} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.checked })} /> : field.type === "select" ? <select value={String(draft[field.key] ?? (field.key === "strategy" ? "sneaky_goblin" : "5"))} disabled={isActive} onChange={(event) => updateSelectDraft(field.key, event.target.value)}>{field.key === "strategy" ? <option value="sneaky_goblin">Sneaky Goblin</option> : <><option value="1">1 battle (test)</option><option value="5">5 battles</option><option value="10">10 battles</option></>}</select> : <input type="number" min="0" value={String(draft[field.key] ?? "")} disabled={isActive} onChange={(event) => setDraft({ ...draft, [field.key]: event.target.value })} />}</label>)}
+              </div>
+              <details><summary>Advanced configuration (read-only)</summary><dl className="readonly-list">{advancedConfig.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{formatValue(value)}</dd></div>)}</dl></details>
+            </>
+          )}
         </article>
 
         <article className="panel logs-panel">

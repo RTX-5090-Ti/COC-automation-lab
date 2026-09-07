@@ -288,18 +288,23 @@ class BotRuntime:
         control.report(emulatorConnected=True, gameRunning=controller.is_app_running(package_name), gameForeground=foreground == package_name, deviceSerial=device.serial, phase=f"CONNECTED:{device.serial}")
         control.log(logging.INFO, f"Connected to Android device: {device.serial}")
         if config.farm_mode == "builder_base":
-            control.report(battlesPlanned=1, battlesCompleted=0)
-            # Builder Base's production flow is the same bounded flow validated by
-            # the CLI test: find a base, deploy one selected troop, then return home.
-            BuilderBaseDeploymentTestController(
-                adb_controller=controller,
-                bot_config=config,
-                package_name=package_name,
-                screen_threshold=0.85,
-                dry_run=config.dry_run,
-                control=control,
-            ).run()
-            control.report(battlesCompleted=1)
+            completed_battles = 0
+            control.report(battlesPlanned=config.battles_per_session, battlesCompleted=completed_battles)
+            for battle_number in range(1, config.battles_per_session + 1):
+                control.checkpoint(f"PREPARE_BUILDER_BATTLE_{battle_number}")
+                control.log(logging.INFO, f"Starting Builder Base battle {battle_number} of {config.battles_per_session}.")
+                # Each bounded flow returns to Builder Base before the next one starts.
+                BuilderBaseDeploymentTestController(
+                    adb_controller=controller,
+                    bot_config=config,
+                    package_name=package_name,
+                    screen_threshold=0.85,
+                    dry_run=config.dry_run,
+                    control=control,
+                ).run()
+                completed_battles += 1
+                control.report(battlesCompleted=completed_battles)
+                control.log(logging.INFO, f"Builder Base battle {completed_battles} completed.")
             return
         setup_history: list[str] = []
         completed_battles = 0

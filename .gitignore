@@ -25,6 +25,7 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 frontend/release/
+frontend/release-*/
 frontend/.npm-cache/
 
 # Desktop backend build output
@@ -32,3 +33,8 @@ build/
 dist/
 *.spec
 frontend/backend-runtime/
+
+# Local test and runtime artifacts
+.pytest-*/
+pytest-cache-files-*/
+history/*.sqlite3

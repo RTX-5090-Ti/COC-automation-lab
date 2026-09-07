@@ -42,6 +42,7 @@ class BotConfig:
     max_runtime_seconds: float
     battles_per_session: int
     farm_mode: str
+    builder_troop_slot_count: int
     strategy: str
     sneaky_goblin_mode: str
     sneaky_goblin_slot_threshold: float
@@ -137,6 +138,7 @@ DEFAULT_CONFIG = {
     "maxRuntimeSeconds": 900.0,
     "battlesPerSession": 5,
     "farmMode": "home_village",
+    "builderTroopSlotCount": 7,
     "strategy": "sneaky_goblin",
     "sneakyGoblinMode": "perimeter_sweep",
     "sneakyGoblinSlotThreshold": 0.85,
@@ -238,6 +240,11 @@ def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
             _read_string_choice(raw_config, "farmMode", choices=("home_village", "builder_base"))
             if "farmMode" in raw_config
             else "home_village"
+        ),
+        builder_troop_slot_count=(
+            _read_int_in_range(raw_config, "builderTroopSlotCount", minimum=2, maximum=7)
+            if "builderTroopSlotCount" in raw_config
+            else 7
         ),
         strategy=_read_non_empty_string(raw_config, "strategy"),
         sneaky_goblin_mode=_read_non_empty_string(raw_config, "sneakyGoblinMode"),
