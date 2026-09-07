@@ -26,6 +26,8 @@ GOBLINS_PER_TEST_POINT = 2
 POST_DEPLOYMENT_WAIT_SECONDS = 5.0
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 SUPER_WALL_BREAKER_TEMPLATE_PATH = asset_path("templates", "battle", "super_wall_breaker_slot.png")
+DRAGON_TEMPLATE_PATH = asset_path("templates", "battle", "dragon_slot.png")
+DRAGON_DA_POINT_INDICES = tuple(range(1, 11))
 
 
 class TrialFlowControllerError(Exception):
@@ -47,6 +49,7 @@ class TrialFlowController:
         dry_run: bool,
         two_point_deployment_test: bool = False,
         deployment_point_test_indices: tuple[int, ...] = (),
+        dragon_da_test: bool = False,
         super_wall_breaker_test_point_1: bool = False,
         setup_1_test: bool = False,
         setup_2_test: bool = False,
@@ -70,6 +73,7 @@ class TrialFlowController:
         self.adb_controller.set_gameplay_input_allowed(not self.dry_run)
         self.two_point_deployment_test = two_point_deployment_test
         self.deployment_point_test_indices = deployment_point_test_indices
+        self.dragon_da_test = dragon_da_test
         self.super_wall_breaker_test_point_1 = super_wall_breaker_test_point_1
         self.setup_1_test = setup_1_test
         self.setup_2_test = setup_2_test
@@ -121,6 +125,16 @@ class TrialFlowController:
         bases_checked = 1
         next_taps = 0
         self.control.report(basesChecked=bases_checked, maxBases=self.bot_config.max_bases_to_check)
+        if self.dragon_da_test:
+            # This targeted deployment test verifies Dragon input only; resource OCR is intentionally skipped.
+            logging.info("Dragon D-A test: resource filtering bypassed; using the first verified enemy base")
+            self.control.report(
+                decision="ATTACK",
+                decisionReasons=["Dragon D-A test bypasses resource filtering"],
+                basesChecked=bases_checked,
+            )
+            return self._deploy_dragons_on_da_then_end_battle()
+
         while True:
             self.control.checkpoint("RESOURCE_SEARCH")
             decision = self._read_and_decide()
@@ -191,6 +205,54 @@ class TrialFlowController:
             return self._deploy_points_then_end_battle((1, 2))
 
         logging.info("Suitable base found; ending the battle without deploying troops")
+        return BattleEndController(
+            adb_controller=self.adb_controller,
+            package_name=self.package_name,
+            threshold=self.screen_threshold,
+            dry_run=False,
+            return_home_timeout_seconds=self.bot_config.new_base_timeout_seconds,
+            screen_transition_poll_seconds_options=self.bot_config.screen_transition_poll_seconds_options,
+            control=self.control,
+        ).run()
+
+    def _deploy_dragons_on_da_then_end_battle(self) -> int:
+        """Test one Dragon at every existing D-A deployment point only."""
+        try:
+            planning_result = SneakyGoblinPlanner().plan_attack(
+                screenshot_path=CURRENT_SCREENSHOT_PATH,
+                config=self.bot_config,
+                troop_template_path=DRAGON_TEMPLATE_PATH,
+                troop_label="Dragon",
+                strategy_name="dragon_da_test",
+                slot_threshold=self.screen_threshold,
+            )
+        except SneakyGoblinPlanningError as error:
+            raise TrialFlowControllerError(str(error)) from error
+
+        plan = planning_result.attack_plan
+        slot = planning_result.troop_slot_result
+        actions_by_number = {action.sequence_number: action for action in plan.actions}
+        actions = [actions_by_number[index] for index in DRAGON_DA_POINT_INDICES if index in actions_by_number]
+        if not plan.valid or slot.bounding_box is None or len(actions) != len(DRAGON_DA_POINT_INDICES):
+            raise TrialFlowControllerError(
+                plan.error_message or "Dragon D-A test requires a detected Dragon slot and all 10 D-A points."
+            )
+
+        self.control.report(
+            attackPlan={
+                "strategy": "dragon_da_test",
+                "plannedActionCount": len(actions),
+                "deploymentPointCount": len(actions),
+                "points": list(DRAGON_DA_POINT_INDICES),
+            }
+        )
+        self._assert_game_ready()
+        self._tap_slot(slot.bounding_box, plan.screenshot_width, plan.screenshot_height, "SELECT_DRAGONS")
+        for action in actions:
+            self._validate_deployment_point(action.x, action.y, plan.screenshot_width, plan.screenshot_height)
+        logging.info("Dragon D-A test: deploying one Dragon at points 1 through 10")
+        self._deploy_action_round(actions, "DEPLOY_DRAGONS_DA")
+        self._wait_after_deployment()
         return BattleEndController(
             adb_controller=self.adb_controller,
             package_name=self.package_name,

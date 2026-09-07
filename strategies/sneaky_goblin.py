@@ -46,13 +46,23 @@ class SneakyGoblinPlanner:
         *,
         screenshot_path: str | Path,
         config: BotConfig,
+        troop_template_path: Path = SNEAKY_GOBLIN_TEMPLATE_PATH,
+        troop_label: str = "Sneaky Goblin",
+        strategy_name: str | None = None,
+        slot_threshold: float | None = None,
     ) -> StrategyPlanningResult:
         screenshot = self._load_image(Path(screenshot_path))
         height, width = screenshot.shape[:2]
         if width <= 0 or height <= 0:
             raise SneakyGoblinPlanningError("Screenshot dimensions are invalid.")
 
-        troop_slot_result = self._detect_troop_slot(screenshot, config.sneaky_goblin_slot_threshold)
+        selected_strategy_name = strategy_name or config.sneaky_goblin_mode
+        troop_slot_result = self._detect_template(
+            screenshot,
+            troop_template_path,
+            config.sneaky_goblin_slot_threshold if slot_threshold is None else slot_threshold,
+            f"{troop_label} slot",
+        )
         battlefield_roi = self._build_battlefield_roi(width, height, config)
         battlefield_polygon = self._build_battlefield_polygon(width, height, config)
         excluded_regions = self._build_excluded_regions(width, height, config)
@@ -60,13 +70,13 @@ class SneakyGoblinPlanner:
         if not troop_slot_result.found or troop_slot_result.bounding_box is None or troop_slot_result.center is None:
             return StrategyPlanningResult(
                 attack_plan=AttackPlan(
-                    strategy_name=config.sneaky_goblin_mode,
+                    strategy_name=selected_strategy_name,
                     valid=False,
                     actions=[],
                     screenshot_width=width,
                     screenshot_height=height,
                     troop_slot_center=None,
-                    error_message="Sneaky Goblin troop slot could not be detected reliably.",
+                    error_message=f"{troop_label} troop slot could not be detected reliably.",
                 ),
                 troop_slot_result=troop_slot_result,
                 battlefield_roi=battlefield_roi,
@@ -85,7 +95,7 @@ class SneakyGoblinPlanner:
         if not actions:
             return StrategyPlanningResult(
                 attack_plan=AttackPlan(
-                    strategy_name=config.sneaky_goblin_mode,
+                    strategy_name=selected_strategy_name,
                     valid=False,
                     actions=[],
                     screenshot_width=width,
@@ -102,7 +112,7 @@ class SneakyGoblinPlanner:
         if len(actions) > config.maximum_planned_actions:
             return StrategyPlanningResult(
                 attack_plan=AttackPlan(
-                    strategy_name=config.sneaky_goblin_mode,
+                    strategy_name=selected_strategy_name,
                     valid=False,
                     actions=[],
                     screenshot_width=width,

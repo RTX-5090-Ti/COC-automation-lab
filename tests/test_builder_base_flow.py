@@ -2,9 +2,9 @@ from builder_base_flow_controller import BUILDER_TEMPLATES
 from screen_detector import ScreenState, detect_screen
 
 
-def test_builder_enemy_banner_detects_prepared_builder_base_screenshot() -> None:
+def test_builder_enemy_banner_detects_prepared_builder_base_screenshot(builder_enemy_base_screenshot) -> None:
     result = detect_screen(
-        "screenshots/debug/builder_enemy_base.png",
+        builder_enemy_base_screenshot,
         threshold=0.85,
         templates=BUILDER_TEMPLATES,
     )

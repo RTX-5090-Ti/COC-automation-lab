@@ -20,9 +20,9 @@ def test_builder_battlefield_polygon_uses_its_own_configurable_vertices() -> Non
     ))
 
 
-def test_builder_battlefield_debug_image_is_saved(tmp_path) -> None:
+def test_builder_battlefield_debug_image_is_saved(tmp_path, builder_enemy_base_screenshot) -> None:
     output = save_builder_battlefield_roi_debug(
-        "screenshots/debug/builder_enemy_base.png",
+        builder_enemy_base_screenshot,
         tmp_path / "builder_roi.png",
         load_bot_config(),
     )

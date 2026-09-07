@@ -10,9 +10,9 @@ def test_builder_army_slots_match_the_reference_ui() -> None:
     ]
 
 
-def test_builder_army_slot_debug_image_is_saved(tmp_path) -> None:
+def test_builder_army_slot_debug_image_is_saved(tmp_path, builder_enemy_base_screenshot) -> None:
     output = save_builder_army_slots_debug(
-        "screenshots/debug/builder_enemy_base.png",
+        builder_enemy_base_screenshot,
         tmp_path / "builder_slots.png",
     )
 

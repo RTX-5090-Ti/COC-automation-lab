@@ -4,7 +4,9 @@ import asyncio
 import shutil
 from pathlib import Path
 
+import cv2
 import httpx
+import numpy as np
 import pytest
 
 
@@ -16,6 +18,27 @@ def config_path(tmp_path: Path) -> Path:
     target = tmp_path / "bot_config.json"
     shutil.copyfile(PROJECT_ROOT / "config" / "bot_config.json", target)
     return target
+
+
+@pytest.fixture
+def builder_enemy_base_screenshot(tmp_path: Path) -> Path:
+    """Create an isolated Builder Base screenshot fixture without runtime artifacts."""
+    screenshot = np.full((1080, 1920, 3), (32, 48, 32), dtype=np.uint8)
+    banner = cv2.imread(
+        str(PROJECT_ROOT / "templates" / "builder_base" / "enemy_base_banner.png"),
+        cv2.IMREAD_UNCHANGED,
+    )
+    assert banner is not None
+
+    top, left = 24, 760
+    height, width = banner.shape[:2]
+    alpha = banner[:, :, 3:4] / 255.0
+    target = screenshot[top : top + height, left : left + width]
+    target[:] = (banner[:, :, :3] * alpha + target * (1.0 - alpha)).astype(np.uint8)
+
+    output = tmp_path / "builder_enemy_base.png"
+    assert cv2.imwrite(str(output), screenshot)
+    return output
 
 
 def request(app, method: str, path: str, **kwargs) -> httpx.Response:
