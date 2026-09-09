@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import random
 import time
+from pathlib import Path
 
 from adb_controller import ADBController
 from builder_base_flow_controller import BUILDER_TEMPLATES
@@ -15,6 +16,13 @@ from tap_utils import TapPointError, select_random_point_in_box
 END_BATTLE_BUTTON_PATH = asset_path("templates", "builder_base", "builder_end_battle_button.png")
 END_BATTLE_CONFIRM_OK_PATH = asset_path("templates", "builder_base", "builder_end_battle_confirm_ok.png")
 RETURN_HOME_BUTTON_PATH = asset_path("templates", "builder_base", "builder_return_home_button.png")
+
+
+def required_template_paths() -> tuple[Path, ...]:
+    """All templates needed to enter, deploy in, and leave Builder Base."""
+    return tuple(path for _state, path, _name in BUILDER_TEMPLATES) + (
+        END_BATTLE_BUTTON_PATH, END_BATTLE_CONFIRM_OK_PATH, RETURN_HOME_BUTTON_PATH,
+    )
 
 
 class BuilderBaseEndControllerError(Exception):

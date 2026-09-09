@@ -207,14 +207,16 @@ DEFAULT_CONFIG = {
 
 def load_bot_config(config_path: str | Path = CONFIG_PATH) -> BotConfig:
     path = Path(config_path)
-    if not path.exists():
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(DEFAULT_CONFIG, indent=2), encoding="utf-8")
-
     try:
         raw_config = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError as error:
+        raise DecisionEngineError(f"Configuration file is missing: {path}. Restore bot_config.json from a backup.") from error
     except json.JSONDecodeError as error:
         raise DecisionEngineError(f"Configuration file is not valid JSON: {path}") from error
+    except OSError as error:
+        raise DecisionEngineError(f"Configuration file cannot be read: {path}: {error}") from error
+    if not isinstance(raw_config, dict):
+        raise DecisionEngineError(f"Configuration must be a JSON object: {path}")
 
     config = BotConfig(
         minimum_gold=_read_non_negative_int(raw_config, "minimumGold"),

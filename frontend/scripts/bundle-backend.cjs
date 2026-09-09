@@ -7,6 +7,7 @@ const projectRoot = path.resolve(frontendRoot, "..");
 const outputRoot = path.join(projectRoot, "build", "backend-runtime");
 const workRoot = path.join(projectRoot, "build", "pyinstaller-work");
 const specRoot = path.join(projectRoot, "build", "pyinstaller-spec");
+const portableConfigRoot = path.join(projectRoot, "build", "portable-config");
 const pythonCandidates = [
   process.env.COC_PYTHON_PATH,
   path.join(projectRoot, ".venv", "Scripts", "python.exe"),
@@ -23,8 +24,18 @@ for (const requiredPath of [
   if (!fs.existsSync(requiredPath)) throw new Error(`Required backend bundle asset is missing: ${requiredPath}`);
 }
 
+if (path.dirname(outputRoot) !== path.join(projectRoot, "build")) {
+  throw new Error(`Refusing to remove unexpected backend output path: ${outputRoot}`);
+}
 fs.rmSync(outputRoot, { recursive: true, force: true });
 fs.mkdirSync(outputRoot, { recursive: true });
+
+// Keep developer settings intact; every new portable profile starts in dry-run.
+const portableConfig = JSON.parse(fs.readFileSync(path.join(projectRoot, "config", "bot_config.json"), "utf8"));
+portableConfig.dryRun = true;
+fs.mkdirSync(portableConfigRoot, { recursive: true });
+const portableConfigPath = path.join(portableConfigRoot, "bot_config.json");
+fs.writeFileSync(portableConfigPath, `${JSON.stringify(portableConfig, null, 2)}\n`);
 
 const addData = (source, destination) => `${source}${path.delimiter}${destination}`;
 const args = [
@@ -35,7 +46,7 @@ const args = [
   "--specpath", specRoot,
   "--paths", projectRoot,
   "--add-data", addData(path.join(projectRoot, "templates"), "templates"),
-  "--add-data", addData(path.join(projectRoot, "config"), "config"),
+  "--add-data", addData(portableConfigPath, "config"),
   "--add-data", addData(path.join(frontendRoot, "dist"), path.join("frontend", "dist")),
   "--collect-all", "fastapi",
   "--collect-all", "uvicorn",
@@ -58,4 +69,6 @@ if (result.status !== 0) process.exit(result.status ?? 1);
 
 const executable = path.join(outputRoot, "desktop_backend", "desktop_backend.exe");
 if (!fs.existsSync(executable)) throw new Error(`PyInstaller did not produce backend executable: ${executable}`);
+const bundledConfig = JSON.parse(fs.readFileSync(path.join(path.dirname(executable), "_internal", "config", "bot_config.json"), "utf8"));
+if (bundledConfig.dryRun !== true) throw new Error("Portable backend must ship with dryRun: true.");
 console.log(`Bundled backend ready: ${path.dirname(executable)}`);

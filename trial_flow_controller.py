@@ -7,16 +7,16 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from adb_controller import ADBController
-from battle_end_controller import BattleEndController
+from battle_end_controller import BattleEndController, required_template_paths as battle_end_template_paths
 from battlefield_fingerprint import build_battlefield_fingerprint, compare_fingerprints
 from decision_engine import BotConfig, Decision, DecisionResult, evaluate_resources
 from resource_reader import ResourceReadResult, ResourceReader
 from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY, asset_path
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
 from runtime.reliability_guard import ReliabilityGuard
-from screen_detector import ScreenDetectionResult, ScreenState, detect_screen, detect_template
+from screen_detector import REGISTERED_TEMPLATES, ScreenDetectionResult, ScreenState, detect_screen, detect_template
 from strategies.attack_plan import save_attack_plan_debug_image
-from strategies.sneaky_goblin import SneakyGoblinPlanner, SneakyGoblinPlanningError
+from strategies.sneaky_goblin import SNEAKY_GOBLIN_TEMPLATE_PATH, SneakyGoblinPlanner, SneakyGoblinPlanningError
 from tap_utils import TapPointError, select_random_point_in_box
 from troop_count_reader import TroopCountReader
 
@@ -27,6 +27,18 @@ POST_DEPLOYMENT_WAIT_SECONDS = 5.0
 ATTACK_PLAN_DEBUG_PATH = DEBUG_DIRECTORY / "attack_plan_sneaky_goblin.png"
 SUPER_WALL_BREAKER_TEMPLATE_PATH = asset_path("templates", "battle", "super_wall_breaker_slot.png")
 DRAGON_TEMPLATE_PATH = asset_path("templates", "battle", "dragon_slot.png")
+
+
+def required_template_paths() -> tuple[Path, ...]:
+    """Home Village navigation, supported troop slots, and battle end assets."""
+    navigation = tuple(path for template in REGISTERED_TEMPLATES
+                       for path in (template.template_path, template.action_template_path)
+                       if path is not None)
+    return tuple(dict.fromkeys(navigation + battle_end_template_paths() + (
+        SNEAKY_GOBLIN_TEMPLATE_PATH, SUPER_WALL_BREAKER_TEMPLATE_PATH, DRAGON_TEMPLATE_PATH,
+    )))
+
+
 DRAGON_DA_POINT_INDICES = tuple(range(1, 11))
 DRAGON_EDGE_POINTS = {
     "DA": DRAGON_DA_POINT_INDICES,
@@ -471,6 +483,7 @@ class TrialFlowController:
         self._tap_slot(super_slot.bounding_box, *super_slot.screenshot_size, "SELECT_SUPER_WALL_BREAKERS")
         for edge_name, numbers in (("DA", range(1, 11)), ("AB", range(11, 21)), ("BC", range(21, 30)), ("CD", range(30, 36))):
             action = actions_by_number[random.choice(tuple(numbers))]
+            self.control.checkpoint(f"SETUP_1_DEPLOY_SUPER_{edge_name}_POINT_{action.sequence_number}")
             self.adb_controller.tap(action.x, action.y)
             logging.info("Setup 1: deployed one Super Wall Breaker on %s at point %s", edge_name, action.sequence_number)
             self._wait_with_checkpoints(random.choice(self.bot_config.delay_between_groups_seconds_options), "SETUP_1_SUPER_DELAY")
@@ -503,6 +516,7 @@ class TrialFlowController:
             self._deploy_action_round(edge_actions, f"SETUP_2_{edge_name}_GOBLIN_ROUND_1")
             super_action = actions[random.choice(numbers)]
             self._tap_slot(super_slot.bounding_box, *super_slot.screenshot_size, f"SETUP_2_SELECT_SUPER_{edge_name}")
+            self.control.checkpoint(f"SETUP_2_DEPLOY_SUPER_{edge_name}_POINT_{super_action.sequence_number}")
             self.adb_controller.tap(super_action.x, super_action.y)
             logging.info("Setup 2: deployed one Super Wall Breaker on %s at point %s", edge_name, super_action.sequence_number)
             self._wait_with_checkpoints(random.choice(self.bot_config.delay_between_groups_seconds_options), "SETUP_2_SUPER_DELAY")

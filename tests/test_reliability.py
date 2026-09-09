@@ -27,7 +27,8 @@ def test_dry_run_suppresses_low_level_tap_and_swipe() -> None:
     adb.suppressed_gameplay_actions = []
     assert adb.tap(10, 20).returncode == 0
     assert adb.swipe(1, 2, 3, 4).returncode == 0
-    assert adb.suppressed_gameplay_actions == ["tap (10, 20)", "swipe (1, 2) -> (3, 4)"]
+    assert adb.run_command(["shell", "input", "keyevent", "4"]).returncode == 0
+    assert adb.suppressed_gameplay_actions == ["tap (10, 20)", "swipe (1, 2) -> (3, 4)", "shell input keyevent 4"]
 
 
 def test_guard_rejects_unexpected_and_unknown_before_action(monkeypatch, tmp_path) -> None:

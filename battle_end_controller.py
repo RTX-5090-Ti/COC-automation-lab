@@ -22,6 +22,12 @@ RETURN_HOME_BUTTON_TEMPLATE_PATH = asset_path("templates", "battle", "return_hom
 HOME_ATTACK_BUTTON_TEMPLATE_PATH = asset_path("templates", "home", "attack_button.png")
 
 
+def required_template_paths() -> tuple[Path, ...]:
+    return (END_BATTLE_BUTTON_TEMPLATE_PATH, SURRENDER_BUTTON_TEMPLATE_PATH,
+            END_BATTLE_CONFIRM_DIALOG_TEMPLATE_PATH, END_BATTLE_CONFIRM_OK_TEMPLATE_PATH,
+            RETURN_HOME_BUTTON_TEMPLATE_PATH, HOME_ATTACK_BUTTON_TEMPLATE_PATH)
+
+
 class BattleEndControllerError(Exception):
     """Raised when the battle-end transition cannot complete safely."""
 

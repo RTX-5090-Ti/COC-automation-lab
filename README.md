@@ -138,7 +138,7 @@ npm.cmd run desktop:dist
 
 The output is written under `frontend/release/`.
 
-Packaged resources are read-only. On first Electron launch, the bundled default `config/bot_config.json` is copied to `%APPDATA%\\CoC Field Console\\bot_config.json`; later launches preserve that file. Screenshots and debug artifacts are written below `%APPDATA%\\CoC Field Console\\screenshots\\`. If an existing config becomes invalid after an upgrade, the API reports the validation error and does not overwrite or reset the user file.
+Packaged resources are read-only. On first Electron launch, the bundled default `config/bot_config.json` is copied to `%APPDATA%\\CoC Field Console\\bot_config.json`; later launches preserve that file, and a .config-initialized marker prevents silently replacing it if it is deleted. Screenshots and debug artifacts are written below `%APPDATA%\\CoC Field Console\\screenshots\\`. If an existing config becomes invalid after an upgrade, the API reports the validation error and does not overwrite or reset the user file.
 
 ### Source Mode
 
@@ -159,6 +159,10 @@ npm.cmd run desktop:dist
 
 `desktop:dist` always builds React first, bundles the backend after `frontend/dist` exists, then creates the Windows portable executable.
 
+The bundle script generates `build/portable-config/bot_config.json` from the development config and forces `dryRun: true` in that generated copy. It leaves `config/bot_config.json` unchanged. Electron initializes a profile only when both bot_config.json and .config-initialized are absent. It stages the config copy, publishes it, then writes the marker; a failed copy leaves neither config nor marker. Existing profiles with a config but no marker are marked without modifying their config. Once marked, a profile with a missing config is never reset automatically; restore the config from a backup. Dry Run is available in both village modes. Disabling it and saving requires confirmation that future sessions can send real gameplay input.
+
+After building, run `powershell -NoProfile -ExecutionPolicy Bypass -File frontend/scripts/smoke-portable.ps1` from the project root to launch the portable executable with a fresh isolated `APPDATA` directory, explicit `--user-data-dir`, and local port. Use `-ExecutablePath` to select an alternate portable filename. It verifies the copied config, starts a dry-run session through the API, saves logs, and closes its own processes. Session completion still depends on the local emulator and screen state. The automated `tests/test_portable_dry_run.py` test uses the generated config with simulated device/screens and the real ADB input guards to verify Start sends no gameplay input.
+
 The bundle contains Python and Python packages only. Target machines must still install LDPlayer14 with Clash of Clans, use the existing LDPlayer-first ADB discovery or configure `ADB_PATH`, and install Tesseract or configure `TESSERACT_PATH`. Opening the desktop app never starts a bot session. Missing ADB, game package, or Tesseract produces a clear session error only when a session is started.
 
 Electron writes backend launch stdout/stderr to `%APPDATA%\CoC Field Console\desktop-backend.log`. Config and generated screenshots stay in the same writable app-data directory. If a config becomes invalid after an upgrade, it is preserved and the API/dashboard reports the validation error instead of resetting it.
@@ -177,6 +181,8 @@ The package is self-contained for Python dependencies, but it intentionally does
 Use the **Run checks** button in the desktop dashboard before automation when you want to verify the local setup. Preflight is read-only: it never starts a session, launches Clash of Clans, sends taps, or deploys troops. It may take one ADB screenshot and stores it only at `%APPDATA%\CoC Field Console\screenshots\debug\preflight_latest.png`.
 
 Preflight checks writable app data, the existing config file, bundled templates/dashboard assets, ADB and connected LDPlayer device, Clash of Clans installation/foreground state, external Tesseract, and the required `1920x1080` screenshot resolution.
+
+Template requirements come from the controllers and are selected using the validated config's `farmMode`. Home Village requires navigation, all supported troop slots, and battle-end templates; Builder Base requires its three navigation and three battle-end templates. Missing templates from the other mode do not block the selected mode. Both modes require the dashboard entry point. If config validation fails, template checking is skipped and the configuration failure keeps Preflight blocked.
 
 - **Ready**: core checks passed.
 - **Warning**: the core runtime is usable, but Clash of Clans is not running or not foreground.
@@ -198,6 +204,13 @@ The app keeps the newest 200 sessions and at most 100 important events for each 
 
 `dryRun: true` suppresses gameplay-changing ADB input at the ADB layer: taps, swipes, and `shell input` commands are not sent. Read-only device checks, screenshots, detection, OCR, Preflight, telemetry, and history remain available.
 
+Opening the desktop app does not start automation. With `dryRun: false`, starting a session from the dashboard and accepting its confirmation enables real gameplay actions without further confirmation for each deployment:
+
+- **Home Village:** searches for a base that meets the configured resource criteria, then executes a randomly selected supported Goblin setup or deploys the configured number of Dragons along a randomly selected edge. The flow waits, ends the battle, and returns home.
+- **Builder Base:** enters a battle, selects a random configured troop slot, deploys once at a random supported point, then ends the battle and returns to Builder Base.
+
+Sessions repeat these flows up to `battlesPerSession`, subject to `maxRuntimeSeconds`, Stop requests, and runtime checks. Home Village also stops searching within its configured limits if no suitable base is found. Pause and Stop take effect at controller checkpoints; an ADB command already sent cannot be recalled. Controller and CLI names containing `test` do not imply dry-run behavior.
+
 Before state-based actions, the runtime captures a fresh screenshot, verifies the selected device and Clash of Clans foreground app, then requires the expected screen. Unknown or unexpected screens never trigger recovery taps: the only recovery is bounded recapture/detection retry, followed by a clean stop with diagnostics.
 
 Common failure codes include `ADB_DISCONNECTED`, `ADB_COMMAND_FAILED`, `GAME_NOT_FOREGROUND`, `UNEXPECTED_SCREEN_STATE`, `UNKNOWN_SCREEN_EXHAUSTED`, `SCREEN_TIMEOUT`, and `SCREENSHOT_FAILED`. Terminal diagnostics include expected/observed states and a screenshot path when capture succeeded. Diagnostic screenshots are written under `%APPDATA%\CoC Field Console\screenshots\debug\`.
@@ -208,4 +221,6 @@ Run the read-only calibration utility before a controlled test:
 & ".\.venv\Scripts\python.exe" calibrate.py --adb-path "C:\LDPlayer\LDPlayer14\adb.exe" --device-id emulator-5554
 ```
 
-It captures one screenshot, prints dimensions and screen-template detection, runs OCR, checks template files, and prints artifact paths. It sends no gameplay input. Recommended flow: run Preflight, run calibration, run dry-run diagnostics, review Session History/artifacts, then perform a controlled live deployment-point test. Full attack-plan execution remains intentionally deferred.
+It captures one screenshot, prints dimensions and screen-template detection, runs OCR, checks template files, and prints artifact paths. It sends no gameplay input. Recommended flow: run Preflight, run calibration, run dry-run diagnostics, and review Session History/artifacts. For a controlled live session, select one battle, review the farm mode and strategy, then explicitly disable Dry Run and save before starting. Live sessions execute the deployment flows described above.
+
+Configuration reads are read-only: missing, unreadable, or invalid config produces an error without creating or replacing the file. GET /api/config and session startup follow this rule. On upgrades from versions without markers, an already-missing config cannot be distinguished from a first-ever launch when neither config nor marker remains.

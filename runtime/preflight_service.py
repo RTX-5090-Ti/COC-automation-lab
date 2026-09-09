@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from adb_controller import ADBController, ADBError, DeviceInfo
-from decision_engine import DecisionEngineError, load_bot_config
-from project_paths import DEBUG_DIRECTORY, RUNTIME_DATA_DIR, asset_path, dashboard_dist_path
+from decision_engine import BotConfig, DecisionEngineError, load_bot_config
+from project_paths import DEBUG_DIRECTORY, RUNTIME_DATA_DIR, dashboard_dist_path
 from resource_reader import ResourceReader, ResourceReaderError
+from runtime.template_requirements import required_template_paths
 
 
 PACKAGE_NAME = "com.supercell.clashofclans"
@@ -52,8 +53,9 @@ class PreflightService:
     def run(self) -> dict[str, Any]:
         checks: list[dict[str, Any]] = []
         checks.append(self._check_runtime_data())
-        checks.append(self._check_config())
-        checks.append(self._check_assets())
+        config_check, config = self._check_config()
+        checks.append(config_check)
+        checks.append(self._check_assets(config))
 
         adb: ADBController | None = None
         device: DeviceInfo | None = None
@@ -94,30 +96,22 @@ class PreflightService:
         except OSError as error:
             return _check("runtime_data", "fail", "Writable runtime data", f"Cannot write runtime data: {error}", "Check permissions for the CoC Field Console app-data folder.", {"runtimeDataDir": str(self.runtime_data_dir)})
 
-    def _check_config(self) -> dict[str, Any]:
+    def _check_config(self) -> tuple[dict[str, Any], BotConfig | None]:
         if not self.config_path.is_file():
-            return _check("configuration", "fail", "Configuration", "The runtime config file is missing.", "Restore bot_config.json from a backup or reinstall the desktop app; it will not be reset automatically.", {"configPath": str(self.config_path)})
+            return _check("configuration", "fail", "Configuration", "The runtime config file is missing.", "Restore bot_config.json from a backup; reinstalling the app will not reset an initialized profile.", {"configPath": str(self.config_path)}), None
         try:
-            load_bot_config(self.config_path)
+            config = load_bot_config(self.config_path)
             with self.config_path.open("r+", encoding="utf-8"):
                 pass
-            return _check("configuration", "pass", "Configuration", "Configuration is valid and writable.", "", {"configPath": str(self.config_path)})
+            return _check("configuration", "pass", "Configuration", "Configuration is valid and writable.", "", {"configPath": str(self.config_path)}), config
         except (DecisionEngineError, OSError) as error:
-            return _check("configuration", "fail", "Configuration", f"Configuration is invalid or unreadable: {error}", "Fix the config values in the dashboard or restore a valid bot_config.json.", {"configPath": str(self.config_path)})
+            return _check("configuration", "fail", "Configuration", f"Configuration is invalid or unreadable: {error}", "Fix the config values in the dashboard or restore a valid bot_config.json.", {"configPath": str(self.config_path)}), None
 
-    def _check_assets(self) -> dict[str, Any]:
+    def _check_assets(self, config: BotConfig | None) -> dict[str, Any]:
+        if config is None:
+            return _check("bundled_assets", "warning", "Bundled assets", "Skipped because configuration is not valid; farm mode cannot be selected.", "Restore a valid config, then run checks again.")
         required = self.asset_paths if self.asset_paths is not None else [
-            asset_path("templates", "home", "attack_button.png"),
-            asset_path("templates", "attack_menu", "find_match_button.png"),
-            asset_path("templates", "army_confirmation", "army_panel_anchor.png"),
-            asset_path("templates", "army_confirmation", "confirm_attack_button.png"),
-            asset_path("templates", "enemy_base", "next_button.png"),
-            asset_path("templates", "battle", "end_battle_button.png"),
-            asset_path("templates", "battle", "surrender_button.png"),
-            asset_path("templates", "battle", "end_battle_confirm_dialog.png"),
-            asset_path("templates", "battle", "end_battle_confirm_ok.png"),
-            asset_path("templates", "battle", "return_home_button.png"),
-            asset_path("templates", "battle", "sneaky_goblin_slot.png"),
+            *required_template_paths(config.farm_mode),
             dashboard_dist_path() / "index.html",
         ]
         missing = [str(path) for path in required if not path.is_file()]

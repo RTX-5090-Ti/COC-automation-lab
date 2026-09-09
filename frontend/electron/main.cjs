@@ -3,6 +3,7 @@ const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const http = require("node:http");
 const path = require("node:path");
+const { initializeRuntimeConfig } = require("./runtime-config.cjs");
 
 let mainWindow = null;
 let backendProcess = null;
@@ -73,15 +74,12 @@ function resolvePython(root) {
 
 function prepareRuntimeData(root) {
   const runtimeDataDir = app.getPath("userData");
-  const configPath = path.join(runtimeDataDir, "bot_config.json");
   fs.mkdirSync(path.join(runtimeDataDir, "screenshots", "current"), { recursive: true });
   fs.mkdirSync(path.join(runtimeDataDir, "screenshots", "debug"), { recursive: true });
-  if (!fs.existsSync(configPath)) {
-    const defaultConfigPath = app.isPackaged
+  const defaultConfigPath = app.isPackaged
       ? path.join(root, "_internal", "config", "bot_config.json")
       : path.join(root, "config", "bot_config.json");
-    fs.copyFileSync(defaultConfigPath, configPath);
-  }
+  const configPath = initializeRuntimeConfig(runtimeDataDir, defaultConfigPath);
   return { runtimeDataDir, configPath };
 }
 
