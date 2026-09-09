@@ -10,7 +10,7 @@ from builder_base_slots import save_builder_army_slots_debug
 from decision_engine import BotConfig
 from project_paths import CURRENT_SCREENSHOT_PATH, DEBUG_DIRECTORY, asset_path
 from runtime.runtime_control import NULL_RUNTIME_CONTROL, RuntimeControl
-from screen_detector import ScreenDetectionResult, ScreenState, detect_screen
+from screen_detector import ScreenDetectionResult, ScreenState, detect_screen, detect_template
 from tap_utils import TapPointError, select_random_point_in_box
 
 
@@ -19,6 +19,23 @@ BUILDER_TEMPLATES = (
     (ScreenState.BUILDER_ATTACK_MENU, asset_path("templates", "builder_base", "find_now_button.png"), "find_now_button.png"),
     (ScreenState.BUILDER_ENEMY_BASE, asset_path("templates", "builder_base", "enemy_base_banner.png"), "enemy_base_banner.png"),
 )
+
+# Keep 80% of the screen, excluding the background Attack button on the left.
+FIND_NOW_SEARCH_ROI = (0.20, 0.0, 1.0, 1.0)
+
+
+def detect_find_now(screenshot_path: str | Path, threshold: float) -> ScreenDetectionResult:
+    template_path = next(path for state, path, _ in BUILDER_TEMPLATES if state is ScreenState.BUILDER_ATTACK_MENU)
+    match = detect_template(screenshot_path, template_path, threshold=threshold, search_roi=FIND_NOW_SEARCH_ROI)
+    return ScreenDetectionResult(
+        state=ScreenState.BUILDER_ATTACK_MENU if match.found else ScreenState.UNKNOWN,
+        confidence=match.confidence,
+        matched_template_name=match.template_name if match.found else None,
+        bounding_box=match.bounding_box if match.found else None,
+        center=match.center if match.found else None,
+        screenshot_size=match.screenshot_size,
+        best_candidate_confidence=match.confidence,
+    )
 
 
 class BuilderBaseFlowControllerError(Exception):
@@ -72,7 +89,7 @@ class BuilderBaseFlowController:
         while time.monotonic() < deadline:
             self.control.checkpoint(f"WAIT_{expected_state.value}")
             self._wait_with_checkpoints(random.choice(self.bot_config.screen_transition_poll_seconds_options))
-            detection = self._capture_and_detect()
+            detection = self._capture_and_detect(find_now_only=expected_state is ScreenState.BUILDER_ATTACK_MENU)
             last_state = detection.state
             if detection.state is expected_state:
                 return detection
@@ -81,7 +98,7 @@ class BuilderBaseFlowController:
 
     def _tap(self, label: str, expected_state: ScreenState, *, dry_run: bool = False) -> None:
         # A fresh screenshot prevents taps based on stale animation coordinates.
-        detection = self._capture_and_detect()
+        detection = self._capture_and_detect(find_now_only=expected_state is ScreenState.BUILDER_ATTACK_MENU)
         if detection.state is not expected_state or detection.bounding_box is None:
             raise BuilderBaseFlowControllerError(f"{label} expected {expected_state.value}; detected {detection.state.value}.")
         if detection.confidence < self.screen_threshold:
@@ -99,10 +116,11 @@ class BuilderBaseFlowController:
         self.adb_controller.tap(*point)
         logging.info("%s tapped once at (%s, %s)", label, *point)
 
-    def _capture_and_detect(self) -> ScreenDetectionResult:
+    def _capture_and_detect(self, *, find_now_only: bool = False) -> ScreenDetectionResult:
         self._assert_game_ready()
         self.adb_controller.capture_screenshot(CURRENT_SCREENSHOT_PATH)
-        detection = detect_screen(CURRENT_SCREENSHOT_PATH, threshold=self.screen_threshold, debug_directory=DEBUG_DIRECTORY, templates=BUILDER_TEMPLATES)
+        detection = (detect_find_now(CURRENT_SCREENSHOT_PATH, self.screen_threshold) if find_now_only else
+                     detect_screen(CURRENT_SCREENSHOT_PATH, threshold=self.screen_threshold, debug_directory=DEBUG_DIRECTORY, templates=BUILDER_TEMPLATES))
         self.control.report(gameScreen=detection.state.value, screenConfidence=detection.confidence, screenDetails={"template": detection.matched_template_name, "bestCandidateConfidence": detection.best_candidate_confidence}, screenshotPath=CURRENT_SCREENSHOT_PATH.as_posix(), phase=f"BUILDER_{detection.state.value}")
         return detection
 

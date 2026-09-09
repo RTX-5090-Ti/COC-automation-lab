@@ -172,6 +172,7 @@ def detect_template(
     template_path: str | Path,
     *,
     threshold: float = 0.85,
+    search_roi: tuple[float, float, float, float] | None = None,
 ) -> TemplateDetectionResult:
     """Match one stable UI template against a screenshot."""
     screenshot_file = Path(screenshot_path)
@@ -179,13 +180,21 @@ def detect_template(
     screenshot = _load_image(screenshot_file, "screenshot")
     template = _load_image(template_file, f"template {template_file.name}")
     screenshot_height, screenshot_width = screenshot.shape[:2]
+    offset_x = offset_y = 0
+    if search_roi is not None:
+        left, top, right, bottom = search_roi
+        if not (0 <= left < right <= 1 and 0 <= top < bottom <= 1):
+            raise ScreenDetectionError("Search ROI must be normalized bounds within the screenshot.")
+        offset_x, offset_y = int(left * screenshot_width), int(top * screenshot_height)
+        screenshot = screenshot[offset_y:int(bottom * screenshot_height), offset_x:int(right * screenshot_width)]
     template_height, template_width = template.shape[:2]
-    if template_width > screenshot_width or template_height > screenshot_height:
-        raise ScreenDetectionError(f"Template is larger than the screenshot: {template_file.name}")
+    if template_width > screenshot.shape[1] or template_height > screenshot.shape[0]:
+        raise ScreenDetectionError(f"Template is larger than the search area: {template_file.name}")
 
     match_result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
     _, max_confidence, _, max_location = cv2.minMaxLoc(match_result)
     x, y = max_location
+    x, y = x + offset_x, y + offset_y
     bounding_box = BoundingBox(x=x, y=y, width=template_width, height=template_height)
     return TemplateDetectionResult(
         found=float(max_confidence) >= threshold,
